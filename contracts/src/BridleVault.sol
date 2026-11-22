@@ -13,6 +13,8 @@ import {BridleHook} from "./BridleHook.sol";
 
 /// @notice ERC-20 shares over one Bridle pool. Deposits and withdrawals are in kind and pro rata,
 /// so no price is used for share math. Holdings are tracked internally: donations do not move the share price.
+/// shortcut: plain ERC-20s only (no fee-on-transfer/rebasing): internal accounting would overstate holdings and
+/// the last withdrawers would revert. The curator picks the pair; list this in the README limits.
 contract BridleVault is ERC20, ReentrancyGuardTransient {
     using SafeERC20 for IERC20;
 
