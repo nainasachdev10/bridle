@@ -28,7 +28,7 @@ Acceptance (CLAUDE.md phase 2, part a): queueIntent; executeQueued via unlock; b
 - [x] Tests for every revert and skip path; deltas net to zero; fees not stolen by a withdrawer
 - [x] forge build + forge test green; hook under 24 KB
 
-Result: `forge test` 142 passed, 0 failed (MandateLib 45, Execution 38, IntentVerifier 19, BridleVault 18, BridleHook 13, OracleGuard 9; deposit fuzz 256 runs). Sizes (via_ir): BridleHook 23,200 B (1,376 B under the 24,576 B limit), BridleVault 3,385 B. Swap + 3->3 range rebalance inside beforeSwap: ~688k gas (warm storage, test).
+Result: `forge test` 144 passed, 0 failed (MandateLib 45, Execution 40, IntentVerifier 19, BridleVault 18, BridleHook 13, OracleGuard 9; deposit fuzz 256 runs). Sizes (via_ir): BridleHook 23,202 B (1,374 B under the 24,576 B limit), BridleVault 3,385 B. Swap + 3->3 range rebalance inside beforeSwap: ~688k gas (warm storage, test).
 
 ## Decisions
 - Phase 1: solc pinned to 0.8.26 because v4-core PoolManager is `pragma =0.8.26`.
@@ -50,7 +50,7 @@ Result: `forge test` 142 passed, 0 failed (MandateLib 45, Execution 38, IntentVe
 - 2a: rebalance = remove all positions, then add each range with weightBps of EACH idle token at the pool price; leftovers stay idle (the hook never swaps).
 - 2a: epoch number for the turnover cap = (now - pool init time) / epochLength. 2b's closeEpoch should use the same numbering.
 - 2a: `maxStaleness` and the feed direction live in `FeedConfig` at registration (feed properties, not mandate terms).
-- 2a: beforeSwap tries execution only with gasleft >= 1,000,000, forwards gasleft - 200,000 to `executeInternal`, so the swap always finishes. Expired intents are dropped. During cooldown it waits silently. Every other failure emits `IntentSkipped(reason)` and keeps the intent queued.
+- 2a: beforeSwap tries execution only with gasleft >= 300,000 (MIN_EXECUTE_GAS = reserve + 100k), forwards gasleft - 200,000 to `executeInternal`, so the swap always finishes, even for swaps sent before an intent was queued. Expired intents are dropped. During cooldown it waits silently. Every other failure (including out of gas) emits `IntentSkipped(reason)` and keeps the intent queued. Review fix (Nov 23): the old 1,000,000 floor blocked every wallet-estimated swap. Tested: a wallet estimate (+3%) still skips, because the reserve holds back gas the rebalance needs; estimate + SWAP_RESERVE_GAS executes. So the demo script and web app add SWAP_RESERVE_GAS to the gas estimate when an intent is queued; executeQueued stays the reliable path.
 - 2a: oracle answers outside v4's price range, zero/negative answers, and updatedAt == 0 all revert `OracleStale`.
 - 2a: `via_ir = true` (needed for stack depth and size). Builds take ~15 s.
 
@@ -58,7 +58,7 @@ Result: `forge test` 142 passed, 0 failed (MandateLib 45, Execution 38, IntentVe
 - SIZE BUDGET: BridleHook has 1.4 KB left. 2b must put epoch close / NAV / index / fee math in BridleVault + TrackRecord (as the CLAUDE.md layout already says) and keep only small hooks (views, safe-mode flag) in BridleHook. Making MandateLib an external library saves only ~0.4 KB.
 - Rebalance sandwich: someone can push the pool price inside the band, then trigger execution; the loss is bounded by oracleBandBps. Inherent to the design; the band is the mitigation.
 - No L2 sequencer-uptime check on the Chainlink feed (check whether Unichain Sepolia has one in 3c).
-- Gas floor 1,000,000 is from a warm-storage test; re-measure on the fork test (3c).
+- Rebalance gas (~687k for swap + 3->3) is from a warm-storage test; re-measure on the fork test (3c). Demo/web must add SWAP_RESERVE_GAS to swap gas estimates for in-swap execution.
 - No reentrancy test (needs a malicious token). `nonReentrant` is on deposit and withdraw.
 - GitHub repo is private; CLAUDE.md says public.
 
