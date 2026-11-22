@@ -39,7 +39,8 @@ library OracleGuard {
             num = 10 ** (uint256(f.feedDecimals) + f.decimals1);
             den = answer * 10 ** f.decimals0;
         }
-        // price < 2^64 keeps priceX192 in 256 bits; anything outside v4's price range is unusable anyway
+        // price < 2^64 keeps priceX192 in 256 bits.
+        // shortcut: raw price must be < 2^64 (fine for WETH/USDC-style pairs); exotic pairs need a split sqrt
         if (num / den >= 1 << 64) revert IMandate.OracleStale();
         uint256 sqrtP = Math.sqrt(FullMath.mulDiv(num, 1 << 192, den));
         if (sqrtP < TickMath.MIN_SQRT_PRICE || sqrtP >= TickMath.MAX_SQRT_PRICE) revert IMandate.OracleStale();
