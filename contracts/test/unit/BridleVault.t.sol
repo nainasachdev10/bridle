@@ -31,6 +31,14 @@ contract BridleVaultTest is BridleFixture {
         }
     }
 
+    function _idle0() internal view returns (uint256 i) {
+        (i,,,,,) = hook.poolState(key.toId());
+    }
+
+    function _idle1() internal view returns (uint256 i) {
+        (, i,,,,) = hook.poolState(key.toId());
+    }
+
     function _deposit(address who, uint256 a0, uint256 a1) internal returns (uint256 shares) {
         vm.prank(who);
         (shares,,) = vault.deposit(a0, a1, 0, who);
@@ -43,9 +51,9 @@ contract BridleVaultTest is BridleFixture {
         assertEq(shares, 2e18 - vault.DEAD_SHARES());
         assertEq(vault.balanceOf(0x000000000000000000000000000000000000dEaD), vault.DEAD_SHARES());
         assertEq(vault.totalSupply(), 2e18);
-        assertEq(vault.idle0(), 4e18);
-        assertEq(vault.idle1(), 1e18);
-        assertEq(t0.balanceOf(address(vault)), 4e18);
+        assertEq(_idle0(), 4e18);
+        assertEq(_idle1(), 1e18);
+        assertEq(manager.balanceOf(address(hook), currency0.toId()), 4e18); // held as ERC-6909 claims
     }
 
     function test_firstDeposit_revert_tooSmall() public {
@@ -86,8 +94,8 @@ contract BridleVaultTest is BridleFixture {
         vm.prank(bob);
         (uint256 shares, uint256 a0, uint256 a1) = vault.deposit(1e18, 1e18, 0, bob);
         // amounts paid are at least the pro-rata value of the shares received
-        assertGe(a0, Math.mulDiv(shares, vault.idle0() - a0, supply));
-        assertGe(a1, Math.mulDiv(shares, vault.idle1() - a1, supply));
+        assertGe(a0, Math.mulDiv(shares, _idle0() - a0, supply));
+        assertGe(a1, Math.mulDiv(shares, _idle1() - a1, supply));
         assertLe(a0, 1e18);
         assertLe(a1, 1e18);
     }
@@ -142,7 +150,7 @@ contract BridleVaultTest is BridleFixture {
         // dead shares keep their slice forever; rounding stays in the vault
         assertEq(a0, 1e18 - 1_000);
         assertEq(a1, 1e18 - 1_000);
-        assertEq(vault.idle0(), 1_000);
+        assertEq(_idle0(), 1_000);
         assertEq(vault.totalSupply(), 1_000);
     }
 
@@ -171,16 +179,14 @@ contract BridleVaultTest is BridleFixture {
     function test_withdraw_revert_notOwnShares() public {
         uint256 shares = _deposit(alice, 1e18, 1e18);
         vm.prank(bob);
-        vm.expectRevert(
-            abi.encodeWithSelector(IERC20Errors.ERC20InsufficientBalance.selector, bob, 0, shares)
-        );
+        vm.expectRevert(abi.encodeWithSelector(IERC20Errors.ERC20InsufficientBalance.selector, bob, 0, shares));
         vault.withdraw(shares, 0, 0, bob);
     }
 
     function test_withdraw_roundsInVaultFavour() public {
         _deposit(alice, 3e18 + 1, 1e18 + 7);
         uint256 bobShares = _deposit(bob, 1e18, 1e18);
-        uint256 idle0Before = vault.idle0();
+        uint256 idle0Before = _idle0();
         uint256 supplyBefore = vault.totalSupply();
         vm.prank(bob);
         (uint256 a0,) = vault.withdraw(bobShares, 0, 0, bob);
@@ -192,6 +198,6 @@ contract BridleVaultTest is BridleFixture {
     function test_revert_nativeCurrency() public {
         PoolKey memory k = PoolKey(Currency.wrap(address(0)), currency1, 500, 10, IHooks(address(hook)));
         vm.expectRevert(BridleVault.NativeCurrencyUnsupported.selector);
-        new BridleVault(hook, k, feed, curator, testMandate(), "x", "x");
+        new BridleVault(hook, k, feedConfig(), curator, testMandate(), "x", "x");
     }
 }
