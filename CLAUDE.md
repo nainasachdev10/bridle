@@ -88,3 +88,15 @@ Brevis -> curator vote -> capacity -> Reactive watcher (keep permissionless call
 - Testnet params: epochLength 5 min, amendmentDelay 10 min
 - README must name prior art ERC-8192 ("Mandate Pattern" for ERC-4626 vaults) and state what Bridle adds: hook-native LP limits, execution inside swaps, scoring vs holding, index HWM, bond burn, exits before amendments
 - Repo is public; the README lists only partner integrations that are actually built, with file paths
+
+## Workflow
+- PROGRESS.md is the source of truth for status. Read it at the start of every session.
+- Each phase (or milestone, if a phase is too big for one session) runs like this:
+  a. Sync: make sure the previous branch is merged, checkout main, pull, create a branch `feat/phase-<n>-<name>`.
+  b. Plan: write a task checklist for this milestone into PROGRESS.md, with the acceptance criteria from this file. Show the plan briefly, then start without waiting.
+  c. Execute: small commits with clear messages after each working step. Don't push; the user pushes.
+  d. Verify: `forge build` and `forge test` must pass. Fix failures properly; never weaken a security rule or delete a test to make it pass. Run invariant/fuzz suites when they exist.
+  e. Report and stop: update PROGRESS.md (done, decisions made, known issues, exact next milestone), commit it, show the test summary plus anything to review, then STOP. Don't start the next milestone until the user says "next".
+- Phase 2 is split into milestones: 2a execution path + oracle guard, 2b epochs/NAV/index/fees, 2c bond/breach/safe mode/liveness. Split other phases if they won't fit in one session.
+- Check today's date against the phase dates above. If behind, say so and propose cuts using the cut order. Never cut the "never cut" list.
+- If a design point in this file looks wrong or unbuildable, stop and explain instead of improvising.
