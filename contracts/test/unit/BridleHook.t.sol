@@ -4,6 +4,7 @@ pragma solidity ^0.8.26;
 import {IHooks} from "@uniswap/v4-core/src/interfaces/IHooks.sol";
 import {IPoolManager} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
 import {Hooks} from "@uniswap/v4-core/src/libraries/Hooks.sol";
+import {LPFeeLibrary} from "@uniswap/v4-core/src/libraries/LPFeeLibrary.sol";
 import {CustomRevert} from "@uniswap/v4-core/src/libraries/CustomRevert.sol";
 import {StateLibrary} from "@uniswap/v4-core/src/libraries/StateLibrary.sol";
 import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
@@ -92,6 +93,20 @@ contract BridleHookTest is BridleFixture {
         m.perfFeeBps = 2_001;
         vm.expectRevert(abi.encodeWithSelector(IMandate.MandateViolation.selector, bytes32("perfFeeBps")));
         new BridleVault(hook, other, feed, curator, m, "x", "x");
+    }
+
+    function test_register_revert_dynamicFee() public {
+        PoolKey memory other = PoolKey(currency0, currency1, LPFeeLibrary.DYNAMIC_FEE_FLAG, 10, IHooks(address(hook)));
+        vm.expectRevert(BridleHook.DynamicFeeUnsupported.selector);
+        new BridleVault(hook, other, feed, curator, testMandate(), "x", "x");
+    }
+
+    function test_register_revert_zeroFeedOrCurator() public {
+        PoolKey memory other = PoolKey(currency0, currency1, 500, 10, IHooks(address(hook)));
+        vm.expectRevert(BridleHook.ZeroAddress.selector);
+        new BridleVault(hook, other, address(0), curator, testMandate(), "x", "x");
+        vm.expectRevert(BridleHook.ZeroAddress.selector);
+        new BridleVault(hook, other, feed, address(0), testMandate(), "x", "x");
     }
 
     // ---------------------------------------------------------------- beforeAddLiquidity

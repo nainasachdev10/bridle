@@ -5,6 +5,7 @@ import {BaseHook} from "@openzeppelin/uniswap-hooks/src/base/BaseHook.sol";
 import {IPoolManager} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
 import {IHooks} from "@uniswap/v4-core/src/interfaces/IHooks.sol";
 import {Hooks} from "@uniswap/v4-core/src/libraries/Hooks.sol";
+import {LPFeeLibrary} from "@uniswap/v4-core/src/libraries/LPFeeLibrary.sol";
 import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
 import {PoolId, PoolIdLibrary} from "@uniswap/v4-core/src/types/PoolId.sol";
 import {BeforeSwapDelta, BeforeSwapDeltaLibrary} from "@uniswap/v4-core/src/types/BeforeSwapDelta.sol";
@@ -17,6 +18,7 @@ import {IntentVerifier} from "./IntentVerifier.sol";
 /// Permissions are exactly beforeInitialize, beforeAddLiquidity, beforeSwap.
 contract BridleHook is BaseHook, IntentVerifier {
     using PoolIdLibrary for PoolKey;
+    using LPFeeLibrary for uint24;
 
     struct PoolConfig {
         address vault;
@@ -32,6 +34,8 @@ contract BridleHook is BaseHook, IntentVerifier {
     error AlreadyRegistered();
     error PoolNotRegistered();
     error AddLiquidityDisabled();
+    error DynamicFeeUnsupported();
+    error ZeroAddress();
 
     constructor(IPoolManager _poolManager) BaseHook(_poolManager) {}
 
@@ -60,6 +64,9 @@ contract BridleHook is BaseHook, IntentVerifier {
         external
         onlyValidPools(key.hooks)
     {
+        // the hook never sets a fee, so a dynamic-fee pool would pay LPs 0% forever
+        if (key.fee.isDynamicFee()) revert DynamicFeeUnsupported();
+        if (feed == address(0) || curator == address(0)) revert ZeroAddress();
         PoolId id = key.toId();
         if (_pools[id].vault != address(0)) revert AlreadyRegistered();
         MandateLib.validateMandate(mandate);
