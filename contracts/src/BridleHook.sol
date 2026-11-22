@@ -39,10 +39,12 @@ contract BridleHook is BaseHook, IntentVerifier, IUnlockCallback {
     using CurrencySettler for Currency;
     using SafeERC20 for IERC20;
 
-    /// @dev beforeSwap only tries to execute with at least this much gas left...
-    uint256 public constant MIN_EXECUTE_GAS = 1_000_000;
-    /// @dev ...and always keeps this much back so the swap finishes even if execution runs out of gas.
+    /// @dev Kept back from execution so the swap always finishes, even when execution runs out of gas
+    /// (protects swaps sent before an intent was queued). A swapper who wants the queued rebalance to run
+    /// in their swap adds this to their gas estimate; otherwise anyone can call executeQueued.
     uint256 public constant SWAP_RESERVE_GAS = 200_000;
+    /// @dev Below this, a rebalance can't finish anyway: skip without trying.
+    uint256 public constant MIN_EXECUTE_GAS = SWAP_RESERVE_GAS + 100_000;
 
     struct PoolConfig {
         PoolKey key;

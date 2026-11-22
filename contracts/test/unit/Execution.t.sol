@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.26;
 
+import {stdError} from "forge-std/StdError.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IHooks} from "@uniswap/v4-core/src/interfaces/IHooks.sol";
 import {IPoolManager} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
@@ -384,36 +385,61 @@ contract ExecutionTest is BridleFixture {
         r[2] = Range(-300 + o, 300 + o, 2_000);
     }
 
-    function test_swap_maxRanges_fitsGasBudget() public {
+    function _swapWithGas(uint256 gasLimit) internal {
+        // limit 1% below the start price: in an empty pool, swapping to MIN_PRICE walks every tick
+        swapRouter.swap{gas: gasLimit}(
+            key,
+            SwapParams({zeroForOne: true, amountSpecified: -1e15, sqrtPriceLimitX96: SQRT_PRICE_1_1 * 99 / 100}),
+            PoolSwapTest.TestSettings({takeClaims: false, settleUsingBurn: false}),
+            ZERO_BYTES
+        );
+    }
+
+    /// @dev Wallets set the gas limit to about the gas a successful run used. Adding SWAP_RESERVE_GAS to that
+    /// estimate must be enough for a 3 -> 3 rebalance to run inside the swap.
+    function test_swap_estimatePlusReserve_executes() public {
         queue(_three(0));
         hook.executeQueued(id);
         vm.warp(block.timestamp + 5 minutes);
         oracle.set(1e8);
         queue(_three(60)); // 3 removes + 3 adds
+
+        uint256 snap = vm.snapshotState();
         uint256 g = gasleft();
-        swapRouter.swap{gas: hook.MIN_EXECUTE_GAS() + 150_000}(
-            key,
-            SwapParams({zeroForOne: true, amountSpecified: -1e15, sqrtPriceLimitX96: MIN_PRICE_LIMIT}),
-            PoolSwapTest.TestSettings({takeClaims: false, settleUsingBurn: false}),
-            ZERO_BYTES
-        );
-        emit log_named_uint("swap + 3->3 rebalance gas", g - gasleft());
-        assertFalse(_queued());
+        _swapWithGas(30_000_000);
+        uint256 used = g - gasleft();
+        assertFalse(_queued(), "executes with plenty of gas");
+        emit log_named_uint("swap + 3->3 rebalance gas", used);
+        vm.revertToState(snap);
+
+        _swapWithGas(used + hook.SWAP_RESERVE_GAS());
+        assertFalse(_queued(), "executes at estimate + reserve");
         assertEq(hook.positions(id)[0].tickLower, -540);
+        _assertClaimsMatchIdle();
     }
 
-    function test_swap_lowGas_leavesIntentQueued() public {
+    function test_swap_lowGas_skipsWithoutTrying() public {
         queue(oneRange(-600, 600));
         vm.expectEmit(true, false, false, true, address(hook));
         emit BridleHook.IntentSkipped(id, "gas");
-        swapRouter.swap{gas: 500_000}(
-            key,
-            SwapParams({zeroForOne: true, amountSpecified: -1e15, sqrtPriceLimitX96: MIN_PRICE_LIMIT}),
-            PoolSwapTest.TestSettings({takeClaims: false, settleUsingBurn: false}),
-            ZERO_BYTES
-        );
+        _swapWithGas(250_000);
         assertTrue(_queued());
         assertEq(hook.positions(id).length, 0);
+    }
+
+    /// @dev A swap sent before the intent was queued: execution starts, runs out of gas, is rolled back,
+    /// and the reserve still finishes the swap.
+    function test_swap_executionOutOfGas_swapStillFinishes() public {
+        queue(_three(0));
+        (uint160 before,,,) = manager.getSlot0(id);
+        vm.expectEmit(true, false, false, true, address(hook));
+        emit BridleHook.IntentSkipped(id, "");
+        _swapWithGas(450_000);
+        (uint160 afterSwap,,,) = manager.getSlot0(id);
+        assertLt(afterSwap, before, "swap went through");
+        assertTrue(_queued());
+        assertEq(hook.positions(id).length, 0);
+        _assertClaimsMatchIdle();
     }
 
     function test_swap_failingIntent_staysQueued_swapContinues() public {
@@ -472,5 +498,39 @@ contract ExecutionTest is BridleFixture {
     function test_swap_withoutIntent_noop() public {
         swap(key, true, -1e15, ZERO_BYTES);
         assertEq(hook.positions(id).length, 0);
+    }
+
+    // ================================================================ isolation between pools
+
+    /// @dev Claims are pooled per token across every Bridle pool. A rogue vault on another pool with the same
+    /// tokens must not be able to reach this pool's funds through bad share math or unpaid deposits.
+    function test_rogueVault_cannotTouchOtherPoolsFunds() public {
+        _deployed();
+        (uint256 a0, uint256 a1) = _idle();
+        uint256 claims0 = manager.balanceOf(address(hook), currency0.toId());
+        uint256 liqA = hook.positions(id)[0].liquidity;
+
+        // this test contract registers pool B (same tokens) and so becomes its vault
+        PoolKey memory keyB = PoolKey(currency0, currency1, 500, 10, IHooks(address(hook)));
+        PoolId idB = keyB.toId();
+        hook.registerPool(keyB, feedConfig(), curator, testMandate());
+        manager.initialize(keyB, SQRT_PRICE_1_1);
+
+        // deposit without sending tokens: nothing to pay with
+        vm.expectRevert();
+        hook.deposit(idB, address(this), 1e18, 1e18, 0);
+
+        // small honest deposit into B, then withdraw more shares than exist
+        t0.transfer(address(hook), 1e6);
+        t1.transfer(address(hook), 1e6);
+        hook.deposit(idB, address(this), 1e6, 1e6, 0);
+        vm.expectRevert(stdError.arithmeticError); // pool B's own idle can't cover it
+        hook.withdraw(idB, 1_000_000, 1, address(this));
+
+        (uint256 b0, uint256 b1) = _idle();
+        assertEq(b0, a0, "A idle0");
+        assertEq(b1, a1, "A idle1");
+        assertEq(hook.positions(id)[0].liquidity, liqA, "A liquidity");
+        assertEq(manager.balanceOf(address(hook), currency0.toId()), claims0 + 1e6, "only B's deposit added");
     }
 }
