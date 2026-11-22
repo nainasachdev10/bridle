@@ -9,7 +9,7 @@ Bridle is a Uniswap v4 hook for curated liquidity with enforceable mandates. Cur
 
 ## How to work in this repo
 - Work phase by phase (below). Finish a phase, run `forge test`, show results, then stop and wait before starting the next.
-- Small commits with clear messages after each working step. Dated commits prove the code was written during the hookathon.
+- Small commits with clear messages after each working step (Claude gives the commands; the user runs them). Dated commits prove the code was written during the hookathon.
 - Never weaken a security rule below to make a test pass. If a design point looks wrong, stop and say so.
 - Prefer simple, readable code over clever gas tricks. Judges read it.
 - Keep the hook's permissions to exactly the three listed.
@@ -94,9 +94,9 @@ Brevis -> curator vote -> capacity -> Reactive watcher (keep permissionless call
 - Each phase (or milestone, if a phase is too big for one session) runs like this:
   a. Sync: make sure the previous branch is merged, checkout main, pull, create a branch `feat/phase-<n>-<name>`.
   b. Plan: write a task checklist for this milestone into PROGRESS.md, with the acceptance criteria from this file. Show the plan briefly, then start without waiting.
-  c. Execute: small commits with clear messages after each working step. Don't push; the user pushes.
+  c. Execute: after each working step, give the exact `git add` + `git commit` commands; the user runs them. Claude never commits or pushes. `gh pr create` / `gh pr merge` only after the user approves.
   d. Verify: `forge build` and `forge test` must pass. Fix failures properly; never weaken a security rule or delete a test to make it pass. Run invariant/fuzz suites when they exist.
-  e. Report and stop: update PROGRESS.md (done, decisions made, known issues, exact next milestone), commit it, show the test summary plus anything to review, then STOP. Don't start the next milestone until the user says "next".
+  e. Report and stop: update PROGRESS.md (done, decisions made, known issues, exact next milestone), give the commit command for it, show the test summary plus anything to review, then STOP. Don't start the next milestone until the user says "next".
 - Phase 2 is split into milestones: 2a execution path + oracle guard, 2b epochs/NAV/index/fees, 2c bond/breach/safe mode/liveness. Split other phases if they won't fit in one session.
 - Check today's date against the phase dates above. If behind, say so and propose cuts using the cut order. Never cut the "never cut" list.
 - If a design point in this file looks wrong or unbuildable, stop and explain instead of improvising.
