@@ -18,7 +18,8 @@ library MandateLib {
     /// @notice Sanity-check a mandate when a pool is registered (and later, when it is amended).
     function validateMandate(Mandate memory m) internal pure {
         if (m.maxOracleDistanceTicks == 0) _violation("maxOracleDistanceTicks");
-        if (m.maxTurnoverBpsPerEpoch == 0) _violation("maxTurnoverBpsPerEpoch");
+        // Deploying from all-idle costs BPS/2 (weights sum to BPS, old weights are 0); a lower cap could never deploy.
+        if (m.maxTurnoverBpsPerEpoch < BPS / 2) _violation("maxTurnoverBpsPerEpoch");
         if (m.minWidthTicks == 0) _violation("minWidthTicks");
         if (m.maxRanges == 0 || m.maxRanges > MAX_RANGES_CAP) _violation("maxRanges");
         if (m.oracleBandBps == 0 || m.oracleBandBps >= BPS) _violation("oracleBandBps");
@@ -31,10 +32,7 @@ library MandateLib {
     }
 
     /// @notice Shape checks on the target ranges of an intent.
-    function checkRanges(Mandate memory m, Range[] memory ranges, int24 oracleTick, int24 tickSpacing)
-        internal
-        pure
-    {
+    function checkRanges(Mandate memory m, Range[] memory ranges, int24 oracleTick, int24 tickSpacing) internal pure {
         if (ranges.length > m.maxRanges) _violation("maxRanges");
 
         uint256 weightSum;
