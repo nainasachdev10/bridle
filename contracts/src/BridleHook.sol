@@ -167,8 +167,12 @@ contract BridleHook is BaseHook, IntentVerifier, IUnlockCallback {
 
     // ================================================================ views
 
-    function poolConfig(PoolId id) external view returns (PoolConfig memory) {
-        return _pools[id];
+    function curatorOf(PoolId id) external view returns (address) {
+        return _pools[id].curator;
+    }
+
+    function mandateOf(PoolId id) external view returns (Mandate memory) {
+        return _pools[id].mandate;
     }
 
     function positions(PoolId id) external view returns (Position[] memory) {
@@ -310,6 +314,12 @@ contract BridleHook is BaseHook, IntentVerifier, IUnlockCallback {
     function collectFees(PoolId id) external {
         if (msg.sender != _pools[id].vault) revert NotVault();
         poolManager.unlock(abi.encode(Action.CollectFees, id, bytes("")));
+    }
+
+    /// @notice Vault-only: apply an amendment the vault has already checked and delayed.
+    function setMandate(PoolId id, Mandate calldata mandate) external {
+        if (msg.sender != _pools[id].vault) revert NotVault();
+        _pools[id].mandate = mandate;
     }
 
     /// @notice Vault-only, one-way. Drops the queued intent and pulls every position back to idle.
