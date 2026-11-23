@@ -8,9 +8,27 @@ export const TWETH = "0x01163d86A5A3a818879f116e3cd66d5aff8aC855" as const;
 export const TUSDC = "0x518a298ffACd7703c45C397823DDfD4C158ABBEF" as const;
 
 export const VAULTS = [
-  { address: "0x38dE68042435098bE0c8296a2F6FC0b3c22F7372", label: "Steady", feed: "Chainlink ETH/USD" },
-  { address: "0x5eFD71dB1A7dA5e3314Be8112174a76c26b20495", label: "Agent", feed: "Chainlink ETH/USD" },
-  { address: "0xd0F560B18D535acc5C3F1ED6620de35eE0D8760F", label: "Reckless", feed: "DEMO feed (not Chainlink)" },
+  {
+    address: "0x38dE68042435098bE0c8296a2F6FC0b3c22F7372",
+    label: "Steady",
+    feed: "Chainlink ETH/USD",
+    strip: "stripes",
+    blurb: "Wide ranges, few moves. The curator you pick when you'd rather not watch.",
+  },
+  {
+    address: "0x5eFD71dB1A7dA5e3314Be8112174a76c26b20495",
+    label: "Agent",
+    feed: "Chainlink ETH/USD",
+    strip: "hatch",
+    blurb: "An automated curator that proposes ranges and signs its own intents.",
+  },
+  {
+    address: "0xd0F560B18D535acc5C3F1ED6620de35eE0D8760F",
+    label: "Reckless",
+    feed: "Demo price feed",
+    strip: "rings",
+    blurb: "Narrow ranges on a demo feed, with a tight 5% breach line. Built to show what a breach does.",
+  },
 ] as const;
 
 export const EXPLORER = "https://unichain-sepolia.blockscout.com";

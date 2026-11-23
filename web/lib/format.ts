@@ -1,6 +1,3 @@
-/** 1e18-scaled ratio -> "1.0015" */
-export const ratio = (v: bigint, digits = 4) => (Number(v) / 1e18).toFixed(digits);
-
 /** basis points -> "1%" */
 export const bps = (v: number) => `${v / 100}%`;
 
@@ -12,3 +9,10 @@ export const usd = (v: number) => `$${v.toLocaleString("en-US", { maximumFractio
 export const shares = (v: bigint) => (v === 0n ? "0" : Number(v).toExponential(2));
 
 export const minutes = (s: number) => (s >= 3600 ? `${(s / 3600).toFixed(1)} h` : `${Math.round(s / 60)} min`);
+
+/** Index (1e18 = same as holding) as a plain "vs holding" percentage: 1.0015e18 -> "+0.15%". */
+export const vsHold = (index: bigint) => {
+  const p = (Number(index) / 1e18 - 1) * 100;
+  if (Math.abs(p) < 0.005) return "±0.00%";
+  return `${p > 0 ? "+" : "−"}${Math.abs(p).toFixed(2)}%`;
+};

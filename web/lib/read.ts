@@ -90,15 +90,30 @@ export type VaultDetail = VaultSummary & {
   poolUsd: number;
 };
 
+/** A vault's closed epochs, oldest first (read one by one: there is no unbounded getter). */
+export async function readRecords(address: `0x${string}`, count: number): Promise<EpochRecord[]> {
+  if (count === 0) return [];
+  const records = await client.multicall({
+    allowFailure: false,
+    contracts: Array.from({ length: count }, (_, i) => ({
+      address,
+      abi: vaultAbi,
+      functionName: "record" as const,
+      args: [BigInt(i)] as const,
+    })),
+  });
+  return records as EpochRecord[];
+}
+
+/** Index after each epoch, starting at 1.0, as plain numbers for a chart. */
+export const indexSeries = (records: EpochRecord[]) => [1, ...records.map((r) => Number(r.index) / 1e18)];
+
 /** Everything the vault page shows. Records are read one by one (no unbounded getter). */
 export async function readDetail(address: `0x${string}`): Promise<VaultDetail> {
   const s = await readSummary(address);
   const v = { address, abi: vaultAbi } as const;
   const [records, rest, oracle] = await Promise.all([
-    client.multicall({
-      allowFailure: false,
-      contracts: Array.from({ length: s.recordCount }, (_, i) => ({ ...v, functionName: "record" as const, args: [BigInt(i)] as const })),
-    }),
+    readRecords(address, s.recordCount),
     client.multicall({
       allowFailure: false,
       contracts: [
@@ -118,7 +133,7 @@ export async function readDetail(address: `0x${string}`): Promise<VaultDetail> {
   const applyAt = Number(applyAfter);
   return {
     ...s,
-    records: records as EpochRecord[],
+    records,
     mandate: toMandate(mandate),
     pending: applyAt === 0 ? null : toMandate(pendingTuple as readonly number[]),
     applyAfter: applyAt,
