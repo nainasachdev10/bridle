@@ -51,6 +51,7 @@ struct EpochRecord {
     uint256 highWaterMark;
     uint256 feeShares; // minted to the curator's bond at this close
     uint32 turnoverBps; // rebalance turnover recorded in this epoch
+    bool breached; // index fell more than maxDrawdownBps below its peak: bond burned, safe mode on
 }
 
 interface IMandate {
