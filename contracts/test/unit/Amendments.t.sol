@@ -81,6 +81,15 @@ contract AmendmentsTest is BridleFixture {
         vault.proposeAmendment(m);
     }
 
+    /// @dev A curator can't widen the oracle band past the cap after people have deposited.
+    function test_propose_revert_bandPastCap() public {
+        Mandate memory m = testMandate();
+        m.oracleBandBps = 501;
+        vm.prank(curator);
+        vm.expectRevert(_violation("oracleBandBps"));
+        vault.proposeAmendment(m);
+    }
+
     function test_propose_feeDown_ok() public {
         Mandate memory m = testMandate();
         m.perfFeeBps = 500;

@@ -149,8 +149,10 @@ contract MandateLibTest is Test {
         m.oracleBandBps = 0;
         _expectViolation("oracleBandBps");
         h.validateMandate(m);
-        m.oracleBandBps = 10_000;
+        m.oracleBandBps = 501; // just past the 5% cap
         _expectViolation("oracleBandBps");
+        h.validateMandate(m);
+        m.oracleBandBps = 500;
         h.validateMandate(m);
     }
 
