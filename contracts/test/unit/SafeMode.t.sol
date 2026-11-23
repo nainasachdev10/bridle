@@ -211,6 +211,24 @@ contract SafeModeTest is BridleFixture {
         assertFalse(hook.safeMode(id));
     }
 
+    /// @dev The curator is present (a signed intent stays queued) but execution is blocked: the pool sits
+    /// outside the oracle band, as on a testnet pool nobody arbitrages. Not idle until that intent expires.
+    function test_liveness_liveQueuedIntentCountsAsPresent() public {
+        _narrow();
+        _toEpoch(1, 1.05e8); // oracle moves 5%, pool stays at 1.0
+        queue(oneRange(-600, 600)); // deadline = epoch 1 + 1 hour = start of epoch 13
+        vm.expectRevert();
+        hook.executeQueued(id); // blocked by the band
+
+        _toEpoch(13, 1.05e8);
+        vault.closeEpoch();
+        assertFalse(hook.safeMode(id), "live intent: curator is present");
+
+        _toEpoch(14, 1.05e8); // intent expired, still no rebalance
+        vault.closeEpoch();
+        assertTrue(hook.safeMode(id));
+    }
+
     function test_liveness_curatorThatNeverActed() public {
         _toEpoch(13, 1e8); // deposit in epoch 0, never a rebalance
         vault.closeEpoch();

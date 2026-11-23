@@ -169,10 +169,12 @@ contract BridleVault is ERC20, ReentrancyGuardTransient, TrackRecord {
         _records.push(r);
         emit EpochClosed(r.epoch, r.navPerShare, r.holdPerShare, r.ratio, r.index, r.highWaterMark);
 
-        // liveness: a curator who hasn't rebalanced for more than maxIdleEpochs is treated as gone
+        // liveness: no rebalance for more than maxIdleEpochs and no live queued intent -> the curator is gone.
+        // A live intent counts as present: execution can be blocked for a while (pool out of band, stale oracle).
         uint64 activeEpoch =
             lastRebalanceAt == 0 ? firstDepositEpoch : uint64(Math.max(turnoverEpoch, firstDepositEpoch));
-        bool idle = nowEpoch - activeEpoch > c.mandate.maxIdleEpochs;
+        bool idle =
+            nowEpoch - activeEpoch > c.mandate.maxIdleEpochs && hook.queuedIntent(poolId).deadline < block.timestamp;
         if (r.breached) emit Breach(c.curator, r.index, highWaterMark, bond);
         if (!safe && (r.breached || idle)) {
             hook.enterSafeMode(poolId);
