@@ -16,6 +16,7 @@ runs = 256
 runs = 64
 depth = 64
 show_metrics = true
+fail_on_revert = true # a reverting handler call fails the run (handler withdraw must never revert)
 
 [lint]
 lint_on_build = false
