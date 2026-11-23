@@ -79,7 +79,7 @@ contract BridleHookTest is BridleFixture {
 
     function test_register_revert_alreadyRegistered() public {
         vm.expectRevert(BridleHook.AlreadyRegistered.selector);
-        new BridleVault(hook, key, feedConfig(), curator, testMandate(), "x", "x");
+        new BridleVault(hook, key, feedConfig(), curator, testMandate(), MIN_BOND, "x", "x");
     }
 
     function test_register_revert_otherHook() public {
@@ -93,13 +93,13 @@ contract BridleHookTest is BridleFixture {
         Mandate memory m = testMandate();
         m.perfFeeBps = 2_001;
         vm.expectRevert(abi.encodeWithSelector(IMandate.MandateViolation.selector, bytes32("perfFeeBps")));
-        new BridleVault(hook, other, feedConfig(), curator, m, "x", "x");
+        new BridleVault(hook, other, feedConfig(), curator, m, MIN_BOND, "x", "x");
     }
 
     function test_register_revert_dynamicFee() public {
         PoolKey memory other = PoolKey(currency0, currency1, LPFeeLibrary.DYNAMIC_FEE_FLAG, 10, IHooks(address(hook)));
         vm.expectRevert(BridleHook.DynamicFeeUnsupported.selector);
-        new BridleVault(hook, other, feedConfig(), curator, testMandate(), "x", "x");
+        new BridleVault(hook, other, feedConfig(), curator, testMandate(), MIN_BOND, "x", "x");
     }
 
     function test_register_revert_zeroFeedOrCurator() public {
@@ -107,9 +107,9 @@ contract BridleHookTest is BridleFixture {
         vm.expectRevert(BridleHook.ZeroAddress.selector);
         FeedConfig memory f = feedConfig();
         f.aggregator = address(0);
-        new BridleVault(hook, other, f, curator, testMandate(), "x", "x");
+        new BridleVault(hook, other, f, curator, testMandate(), MIN_BOND, "x", "x");
         vm.expectRevert(BridleHook.ZeroAddress.selector);
-        new BridleVault(hook, other, feedConfig(), address(0), testMandate(), "x", "x");
+        new BridleVault(hook, other, feedConfig(), address(0), testMandate(), MIN_BOND, "x", "x");
     }
 
     // ---------------------------------------------------------------- beforeAddLiquidity

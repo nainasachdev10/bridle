@@ -42,6 +42,7 @@ contract ExecutionTest is BridleFixture {
             vm.stopPrank();
         }
         _deposit(alice, 100e18, 100e18);
+        bondCurator();
     }
 
     // ---------------------------------------------------------------- helpers
@@ -109,7 +110,7 @@ contract ExecutionTest is BridleFixture {
 
     function test_init_revert_outOfBand() public {
         PoolKey memory other = PoolKey(currency0, currency1, 500, 10, IHooks(address(hook)));
-        new BridleVault(hook, other, feedConfig(), curator, testMandate(), "x", "x");
+        new BridleVault(hook, other, feedConfig(), curator, testMandate(), MIN_BOND, "x", "x");
         oracle.set(1.05e8);
         vm.expectRevert(
             abi.encodeWithSelector(

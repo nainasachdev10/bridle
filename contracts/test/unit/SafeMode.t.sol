@@ -21,6 +21,7 @@ contract SafeModeTest is BridleFixture {
     PoolId id;
     address alice = makeAddr("alice");
     uint256 aliceShares;
+    uint256 _curatorFree; // curator's own unlocked shares
 
     function setUp() public override {
         super.setUp();
@@ -34,6 +35,8 @@ contract SafeModeTest is BridleFixture {
         t1.approve(address(vault), type(uint256).max);
         (aliceShares,,) = vault.deposit(100e18, 100e18, 0, alice);
         vm.stopPrank();
+        bondCurator();
+        _curatorFree = vault.balanceOf(curator);
     }
 
     // ---------------------------------------------------------------- helpers
@@ -111,8 +114,9 @@ contract SafeModeTest is BridleFixture {
         assertTrue(r.breached);
         assertLt(r.index * 10_000, vault.highWaterMark() * 9_000, "index > 10% below peak");
         assertEq(vault.bondShares(), 0);
-        assertEq(vault.balanceOf(address(vault)), 0, "bond burned, not released");
-        assertEq(vault.balanceOf(curator), 0);
+        assertEq(vault.balanceOf(address(vault)), 0, "posted bond and fee bond burned, not released");
+        assertEq(vault.postedBond(), 0);
+        assertEq(vault.balanceOf(curator), _curatorFree, "curator's unlocked shares untouched");
         assertEq(r.feeShares, 0);
         assertTrue(hook.safeMode(id));
         assertEq(hook.positions(id).length, 0, "all liquidity back to idle");
@@ -144,7 +148,7 @@ contract SafeModeTest is BridleFixture {
         uint256 supplyBefore = vault.totalSupply();
         uint256 bond = vault.bondShares();
         EpochRecord memory r = vault.closeEpoch(); // navPerShare is measured before the burn
-        assertEq(vault.totalSupply(), supplyBefore - bond, "only the bond was burned");
+        assertEq(vault.totalSupply(), supplyBefore - bond - MIN_BOND, "only the fee bond + posted bond burned");
 
         vm.prank(alice);
         (uint256 a0, uint256 a1) = vault.withdraw(aliceShares, 0, 0, alice);
@@ -153,6 +157,44 @@ contract SafeModeTest is BridleFixture {
         emit log_named_decimal_uint("navPerShare before burn", r.navPerShare, 18);
         emit log_named_decimal_uint("claim per share after", claimPerShare, 18);
         assertGe(claimPerShare, r.navPerShare, "burn only helps holders");
+    }
+
+    /// @dev The case the posted bond exists for: a curator who only ever lost has no fee bond, so without a
+    /// posted bond a breach would burn nothing. Invariant 5 with a visible burn.
+    function test_breach_losingCurator_postedBondBurned_holdersGain() public {
+        _narrow();
+        _nextEpoch(1.3e8); // straight into a breach, no fee epoch before it
+        _poolTo1_3();
+        assertEq(vault.bondShares(), 0, "no fee bond");
+        uint256 supplyBefore = vault.totalSupply();
+
+        vm.expectEmit(true, false, false, false, address(vault));
+        emit TrackRecord.Breach(curator, 0, 0, MIN_BOND);
+        EpochRecord memory r = vault.closeEpoch();
+        assertTrue(r.breached);
+        assertEq(vault.totalSupply(), supplyBefore - MIN_BOND, "posted bond burned");
+        assertEq(vault.postedBond(), 0);
+
+        vm.prank(alice);
+        (uint256 a0, uint256 a1) = vault.withdraw(aliceShares, 0, 0, alice);
+        uint256 claimPerShare = Math.mulDiv(_valueAtOracle(a0, a1), WAD, aliceShares);
+        // the burned bond is ~1% of supply: alice's claim per share rises by about that much
+        assertGt(claimPerShare, r.navPerShare * 1_005 / 1_000, "burn is visible to holders");
+    }
+
+    /// @dev A curator who sees a breach coming can't pull the bond out first: it stays burnable during notice.
+    function test_breach_burnsBondDuringUnbondNotice() public {
+        _narrow();
+        vm.prank(curator);
+        vault.requestUnbond(MIN_BOND);
+        _nextEpoch(1.3e8);
+        _poolTo1_3();
+        assertTrue(vault.closeEpoch().breached);
+        assertEq(vault.postedBond(), 0);
+        assertEq(vault.unbondPending(), 0);
+        vm.prank(curator);
+        vm.expectRevert(BridleVault.ZeroShares.selector);
+        vault.completeUnbond();
     }
 
     function test_breach_dropsQueuedIntent() public {
@@ -198,7 +240,8 @@ contract SafeModeTest is BridleFixture {
         assertFalse(r.breached);
         assertTrue(hook.safeMode(id));
         assertEq(hook.positions(id).length, 0);
-        assertEq(vault.balanceOf(curator), bond, "absent is not misconduct: bond released");
+        assertEq(vault.balanceOf(curator), _curatorFree + bond, "absent is not misconduct: fee bond released");
+        assertEq(vault.postedBond(), MIN_BOND, "posted bond kept, not burned");
     }
 
     function test_liveness_rebalanceResetsTheClock() public {
@@ -240,7 +283,7 @@ contract SafeModeTest is BridleFixture {
     function test_safeMode_blocksIntentsAndDeposits() public {
         _breach();
         (RebalanceIntent memory i, bytes memory sig) = _signedIntent(oneRange(-600, 600));
-        vm.expectRevert(BridleHook.SafeModeOn.selector);
+        vm.expectRevert(BridleHook.CuratorNotActive.selector);
         hook.queueIntent(i, sig);
         vm.expectRevert(BridleHook.NothingQueued.selector);
         hook.executeQueued(id);

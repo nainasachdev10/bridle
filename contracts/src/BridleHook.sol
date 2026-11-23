@@ -27,6 +27,12 @@ import {MandateLib} from "./libraries/MandateLib.sol";
 import {OracleGuard} from "./libraries/OracleGuard.sol";
 import {IntentVerifier} from "./IntentVerifier.sol";
 
+/// @dev What the hook asks a pool's vault before taking an intent.
+interface IBridleVault {
+    /// @return true when the curator's posted bond covers the minimum and the pool is not in safe mode
+    function isActive() external view returns (bool);
+}
+
 /// @notice Uniswap v4 hook for curated liquidity under an enforceable mandate.
 /// Permissions are exactly beforeInitialize, beforeAddLiquidity, beforeSwap.
 /// Custody: the hook owns every position in the PoolManager and holds idle balances as ERC-6909 claims,
@@ -105,7 +111,7 @@ contract BridleHook is BaseHook, IntentVerifier, IUnlockCallback {
     error NotSelf();
     error NothingQueued();
     error Slippage();
-    error SafeModeOn();
+    error CuratorNotActive();
 
     constructor(IPoolManager _poolManager) BaseHook(_poolManager) {}
 
@@ -242,7 +248,7 @@ contract BridleHook is BaseHook, IntentVerifier, IUnlockCallback {
         PoolConfig storage c = _pools[id];
         if (c.vault == address(0)) revert PoolNotRegistered();
         if (intent.curator != c.curator) revert IMandate.NotCurator();
-        if (safeMode[id]) revert SafeModeOn();
+        if (!IBridleVault(c.vault).isActive()) revert CuratorNotActive();
         _useIntent(intent, signature);
         // fail fast on shape; everything is checked again at execution
         int24 oracleTick = TickMath.getTickAtSqrtPrice(oracleSqrtPriceX96(id));

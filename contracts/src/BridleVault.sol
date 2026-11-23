@@ -11,7 +11,7 @@ import {PoolId, PoolIdLibrary} from "@uniswap/v4-core/src/types/PoolId.sol";
 import {Currency} from "@uniswap/v4-core/src/types/Currency.sol";
 import {TickMath} from "@uniswap/v4-core/src/libraries/TickMath.sol";
 import {SqrtPriceMath} from "@uniswap/v4-core/src/libraries/SqrtPriceMath.sol";
-import {EpochRecord, FeedConfig, Mandate} from "./interfaces/IMandate.sol";
+import {EpochRecord, FeedConfig, IMandate, Mandate} from "./interfaces/IMandate.sol";
 import {MandateLib} from "./libraries/MandateLib.sol";
 import {BridleHook} from "./BridleHook.sol";
 import {TrackRecord} from "./TrackRecord.sol";
@@ -35,6 +35,8 @@ contract BridleVault is ERC20, ReentrancyGuardTransient, TrackRecord {
     PoolId public immutable poolId;
     IERC20 public immutable token0;
     IERC20 public immutable token1;
+    /// @notice Shares the curator must keep locked for the vault to take intents. Burned on a breach.
+    uint256 public immutable minBond;
 
     /// @notice The epoch being scored, and its start snapshot: the tokens the vault held, valued at the
     /// oracle price, and the share supply. Deposits and withdrawals are pro rata, so per share this is fixed.
@@ -46,9 +48,18 @@ contract BridleVault is ERC20, ReentrancyGuardTransient, TrackRecord {
     uint256 public bondShares;
     /// @notice Epoch of the first deposit: the idle-epoch clock starts here if the curator never rebalances.
     uint64 public firstDepositEpoch;
+    /// @notice Curator's own shares locked as a bond (held by this contract). Burned on a breach.
+    uint256 public postedBond;
+    /// @notice Part of postedBond the curator asked to unlock, and the epoch they asked in. Still burnable
+    /// until a close has passed after the request.
+    uint256 public unbondPending;
+    uint64 public unbondRequestEpoch;
 
     event Deposit(address indexed sender, address indexed receiver, uint256 shares, uint256 amount0, uint256 amount1);
     event Withdraw(address indexed owner, address indexed receiver, uint256 shares, uint256 amount0, uint256 amount1);
+    event BondLocked(address indexed curator, uint256 shares, uint256 postedBond);
+    event UnbondRequested(address indexed curator, uint256 shares, uint64 epoch);
+    event Unbonded(address indexed curator, uint256 shares, uint256 postedBond);
 
     error NativeCurrencyUnsupported();
     error ZeroShares();
@@ -57,6 +68,9 @@ contract BridleVault is ERC20, ReentrancyGuardTransient, TrackRecord {
     error NothingToClose();
     error EpochNotOver();
     error SafeModeOn();
+    error ZeroMinBond();
+    error BondTooLarge();
+    error NoticeNotOver();
 
     constructor(
         BridleHook _hook,
@@ -64,11 +78,14 @@ contract BridleVault is ERC20, ReentrancyGuardTransient, TrackRecord {
         FeedConfig memory feed,
         address curator,
         Mandate memory mandate,
+        uint256 minBond_,
         string memory name_,
         string memory symbol_
     ) ERC20(name_, symbol_) {
         // shortcut: ERC-20 pairs only (use WETH); native ETH needs payable deposit paths.
         if (key.currency0.isAddressZero()) revert NativeCurrencyUnsupported();
+        if (minBond_ == 0) revert ZeroMinBond();
+        minBond = minBond_;
         hook = _hook;
         poolId = key.toId();
         token0 = IERC20(Currency.unwrap(key.currency0));
@@ -121,6 +138,54 @@ contract BridleVault is ERC20, ReentrancyGuardTransient, TrackRecord {
         emit Withdraw(msg.sender, receiver, shares, amount0, amount1);
     }
 
+    // ================================================================ curator bond
+
+    /// @notice True when the curator may queue intents: bond (minus any pending unbond) >= minBond and no
+    /// safe mode. Until the named curator posts a bond the vault just holds, so naming a curator who never
+    /// agreed does nothing.
+    function isActive() external view returns (bool) {
+        return postedBond - unbondPending >= minBond && !hook.safeMode(poolId);
+    }
+
+    /// @notice Curator locks their own vault shares as a bond. They earn like any shares and are burned on a breach.
+    function lockBond(uint256 shares) external nonReentrant {
+        address cur = _onlyCurator();
+        if (hook.safeMode(poolId)) revert SafeModeOn();
+        if (shares == 0) revert ZeroShares();
+        _transfer(cur, address(this), shares);
+        postedBond += shares;
+        emit BondLocked(cur, shares, postedBond);
+    }
+
+    /// @notice Start unlocking part of the bond. It stays burnable until a close has passed after this request,
+    /// so a curator who sees a breach coming can't pull it out first. Replaces an earlier request.
+    function requestUnbond(uint256 shares) external {
+        address cur = _onlyCurator();
+        if (shares == 0) revert ZeroShares();
+        if (shares > postedBond) revert BondTooLarge();
+        unbondPending = shares;
+        unbondRequestEpoch = currentEpoch;
+        emit UnbondRequested(cur, shares, currentEpoch);
+    }
+
+    function completeUnbond() external nonReentrant {
+        address cur = _onlyCurator();
+        uint256 shares = unbondPending;
+        if (shares == 0) revert ZeroShares();
+        if (currentEpoch <= unbondRequestEpoch) revert NoticeNotOver();
+        unbondPending = 0;
+        postedBond -= shares;
+        _transfer(address(this), cur, shares);
+        emit Unbonded(cur, shares, postedBond);
+    }
+
+    function _onlyCurator() internal view returns (address cur) {
+        cur = hook.poolConfig(poolId).curator;
+        if (msg.sender != cur) revert IMandate.NotCurator();
+    }
+
+    // ================================================================ epochs
+
     /// @notice Permissionless. Scores the finished epoch against simply holding, compounds the index, and
     /// pays the performance fee on index above the high-water mark (CLAUDE.md "Key formulas").
     /// All values at the Chainlink price, never the pool price. Reverts OracleStale; withdrawals don't need it.
@@ -142,12 +207,17 @@ contract BridleVault is ERC20, ReentrancyGuardTransient, TrackRecord {
         bool safe = hook.safeMode(poolId);
         r.breached = !safe && MandateLib.isBreached(c.mandate, r.index, highWaterMark);
 
-        // the pending bond: burned on a breach (every other holder's share grows), else it survived an epoch
+        // breach: burn the posted bond and the pending fee bond (every other holder's share grows).
+        // Otherwise the fee bond survived its epoch and goes to the curator.
         uint256 bond = bondShares;
-        if (bond > 0) {
-            bondShares = 0;
-            if (r.breached) _burn(address(this), bond);
-            else _transfer(address(this), c.curator, bond);
+        bondShares = 0;
+        if (r.breached) {
+            bond += postedBond;
+            postedBond = 0;
+            unbondPending = 0;
+            if (bond > 0) _burn(address(this), bond);
+        } else if (bond > 0) {
+            _transfer(address(this), c.curator, bond);
         }
         if (!safe && r.index > highWaterMark) {
             // f = perfFee * (index - hwm) / index; minting supply * f / (1 - f) gives the curator exactly f.

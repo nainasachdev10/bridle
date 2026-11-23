@@ -18,6 +18,7 @@ contract EpochsTest is BridleFixture {
     PoolId id;
     address alice = makeAddr("alice");
     address bob = makeAddr("bob");
+    uint256 _curatorFree; // curator's own unlocked shares
 
     function setUp() public override {
         super.setUp();
@@ -45,6 +46,8 @@ contract EpochsTest is BridleFixture {
     /// @dev Alice deposits 100/100 and the curator deploys it all into one range around the price.
     function _funded() internal {
         _deposit(alice, 100e18, 100e18);
+        bondCurator();
+        _curatorFree = vault.balanceOf(curator);
         queue(oneRange(-600, 600));
         hook.executeQueued(id);
     }
@@ -101,8 +104,8 @@ contract EpochsTest is BridleFixture {
         assertGt(r.feeShares, 0);
         // the fee is the curator's bond, held by the vault, worth f of the vault
         assertEq(vault.bondShares(), r.feeShares);
-        assertEq(vault.balanceOf(address(vault)), r.feeShares);
-        assertEq(vault.balanceOf(curator), 0);
+        assertEq(vault.balanceOf(address(vault)), r.feeShares + vault.postedBond());
+        assertEq(vault.balanceOf(curator), _curatorFree, "fee not paid out yet");
     }
 
     function test_close_priceMove_impermanentLoss_ratioBelowOne_noFee() public {
@@ -206,8 +209,8 @@ contract EpochsTest is BridleFixture {
 
         _nextEpoch(1e8);
         _close();
-        assertEq(vault.balanceOf(curator), fee, "bond survived an epoch");
-        assertEq(vault.balanceOf(address(vault)), vault.bondShares());
+        assertEq(vault.balanceOf(curator), _curatorFree + fee, "bond survived an epoch");
+        assertEq(vault.balanceOf(address(vault)), vault.bondShares() + vault.postedBond());
     }
 
     // ================================================================ bookkeeping
