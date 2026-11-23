@@ -100,6 +100,7 @@ Result: `forge test` 220 passed, 1 skipped (fork test without the RPC). With `UN
 - 3c: test tokens are our own mintable tWETH/tUSDC (open faucet), not Unichain's WETH/USDC, so demo users and curators can get funds. The real vaults still price them with the real Chainlink ETH/USD feed.
 - 3c: DemoFeed is owner-only (unlike the test MockAggregator), so only the deployer can move the demo vault's price for the breach scene. Its description says "not Chainlink".
 - 3c: the Reckless (demo) vault uses a 5% drawdown line so the breach scene needs only a modest price move.
+- 3c review: DemoFeed's owner-only `set` has a unit test (DemoFeed.t.sol); a mutation that drops the check fails it.
 
 ## Known issues
 - SIZE BUDGET: BridleHook has 1.4 KB left. 2b must put epoch close / NAV / index / fee math in BridleVault + TrackRecord (as the CLAUDE.md layout already says) and keep only small hooks (views, safe-mode flag) in BridleHook. Making MandateLib an external library saves only ~0.4 KB.
@@ -110,6 +111,7 @@ Result: `forge test` 220 passed, 1 skipped (fork test without the RPC). With `UN
 - Repo is public now (as CLAUDE.md says).
 - Performance fee has no per-depositor equalization: whoever holds at close shares the fee, so a deposit just before close pays a little of it and a withdrawal just before skips it. Dust at 5-minute epochs; list in README limits (`shortcut:` comment in closeEpoch).
 - Safe-mode unwind removes liquidity at the pool price. Someone who pushes the pool price within our liquidity just before a breaching close changes which tokens the vault ends up holding; it costs them the swap, and the vault keeps the fees.
+- Demo (4b): the Reckless vault treats a DemoFeed price older than 1 hour as stale (deposits, rebalances and epoch close revert OracleStale; withdrawals still work). The demo script must call `DemoFeed.set` (same price is fine) before each scene and at least every 50 minutes.
 - Demo (3c/4b), from the outside review: two vaults. One on the real Unichain Sepolia Chainlink ETH/USD feed, and one clearly labelled demo vault on MockAggregator for the breach scene (the real price can't be moved on camera). Set maxStaleness from the real feed's heartbeat, or closeEpoch reverts OracleStale with 5-minute epochs. The UI labels the index "gross of fees" (it's measured before the fee is minted).
 - Demo (3c/4b): nobody arbitrages a testnet pool, so after any >1% ETH move the pool sits out of band and no rebalance or deposit can run. The demo script must swap the pool back to the oracle price; the curator keeps an intent queued to stay "present".
 - 3b gaps: the invariant runs never reach idle-epoch liveness (needs 12+ epochs of no rebalance in 64 steps) and use a single pool; liveness and multi-pool isolation are covered by unit tests (SafeMode, Execution).
