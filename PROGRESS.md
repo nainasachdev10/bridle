@@ -26,7 +26,7 @@ Acceptance: the curator locks their own vault shares as a bond; the vault takes 
 - [x] CLAUDE.md: posted-bond rule in Key formulas; PROGRESS: 3c demo notes
 - [x] forge build + forge test green; hook under 24 KB
 
-Result: `forge test` 188 passed, 0 failed (MandateLib 45, Execution 40, IntentVerifier 19, BridleVault 18, Epochs 17, SafeMode 17, BridleHook 13, Bond 10, OracleGuard 9). Sizes: BridleHook 23,974 B (602 B under the limit), BridleVault 12,609 B. The outside review's scenario is a test now: a curator who only lost (no fee bond) breaches, the 1e18 posted bond is burned and alice's claim per share rises by > 0.5%. Mutation check: not burning the posted bond fails 3 tests.
+Result: `forge test` 190 passed, 0 failed (MandateLib 45, Execution 40, IntentVerifier 19, BridleVault 18, Epochs 17, SafeMode 19, BridleHook 13, Bond 10, OracleGuard 9). Sizes: BridleHook 23,974 B (602 B under the limit), BridleVault 12,822 B. The outside review's scenario is a test now: a curator who only lost (no fee bond) breaches, the 1e18 posted bond is burned and alice's claim per share rises by > 0.5%. Mutation check: not burning the posted bond fails 3 tests.
 
 ## Decisions
 - Phase 1: solc pinned to 0.8.26 because v4-core PoolManager is `pragma =0.8.26`.
@@ -67,7 +67,7 @@ Result: `forge test` 188 passed, 0 failed (MandateLib 45, Execution 40, IntentVe
 - 2c: unwinding reuses a new `_removeAll` (split out of `_moveLiquidity`). Calling `_moveLiquidity` with no ranges cost ~1 KB of hook size because via_ir duplicated it.
 
 - 2d (outside review): the curator posts their own vault shares as a bond (`lockBond`), at least `minBond` (vault constructor, > 0). Until then the vault takes no intents: the hook asks `vault.isActive()` in queueIntent. Deposits stay open (the curator needs shares to post a bond); an unbonded vault just holds, and liveness ends it after maxIdleEpochs.
-- 2d: unbonding = `requestUnbond(shares)` then `completeUnbond()` once a close has passed. A pending unbond counts against minBond at once (the vault goes inactive if it drops below), but the shares stay burnable until completed. One pending request at a time; a new request replaces it.
+- 2d: unbonding = `requestUnbond(shares)` then `completeUnbond()` once a close has passed, and only when not in drawdown (index >= hwm) or once safe mode is on. Review fix: a breach builds over several closes, so a one-close notice alone let the curator pull the bond just before it. A curator who wants out while losing stops managing; liveness turns safe mode on, and until then the bond can still be burned. A pending unbond counts against minBond at once (the vault goes inactive if it drops below), but the shares stay burnable until completed. One pending request at a time; a new request replaces it.
 - 2d: a breach burns posted bond + pending fee bond; the curator's other (unlocked) shares are untouched. A liveness safe mode burns nothing, and the curator can still unbond afterwards.
 - 2d: the breach check already ran before the fee-bond release since 2c (`r.breached` is computed first); the review was written against 2b.
 
