@@ -20,14 +20,14 @@ Acceptance (CLAUDE.md phase 2, part b): epoch close, NAV, index, HWM fee. NAV in
 - [x] Hook: `epochOf(id)` view (one epoch formula, used by the turnover cap and the vault)
 - [x] Hook: vault-only `collectFees(id)` (fees into idle before valuing). NAV valuation itself lives in the vault (size budget)
 - [x] IMandate: `EpochRecord` schema
-- [x] TrackRecord.sol: per-vault epoch ledger (records, count, one record), index + hwm state, EpochClosed / FeeMinted events
+- [x] TrackRecord.sol: per-vault epoch ledger (recordCount, record(i); no whole-array getter, it would outgrow RPC gas caps), index + hwm state, EpochClosed / FeeMinted events
 - [x] BridleVault.closeEpoch (permissionless, nonReentrant): NAV, hold value of the start snapshot, ratio, index, fee shares, bond hand-off, next snapshot
 - [x] First deposit sets the first snapshot
 - [x] Fee shares minted to the vault as the curator's bond; released to the curator at the next close (2c burns it on a breach instead)
 - [x] Tests for scoring, fee/hwm, bond, bookkeeping and every revert path
 - [x] forge build + forge test green; hook under 24 KB
 
-Result: `forge test` 160 passed, 0 failed (Execution 40, MandateLib 45, IntentVerifier 19, BridleVault 18, Epochs 16, BridleHook 13, OracleGuard 9). Sizes: BridleHook 23,491 B (1,085 B under the limit), BridleVault 9,702 B. Sanity numbers from the tests: 5 round trips of 10-token swaps at 0.3% on 200 of capital score exactly 1.0015; a +5% oracle move against a +-6% range scores 0.9899 (impermanent loss); a mid-epoch deposit + withdrawals leave the ratio identical to 18 decimals.
+Result: `forge test` 161 passed, 0 failed (Execution 40, MandateLib 45, IntentVerifier 19, BridleVault 18, Epochs 17, BridleHook 13, OracleGuard 9). Sizes: BridleHook 23,491 B (1,085 B under the limit), BridleVault 9,484 B. Sanity numbers from the tests: 5 round trips of 10-token swaps at 0.3% on 200 of capital score exactly 1.0015; a +5% oracle move against a +-6% range scores 0.9899 (impermanent loss); a mid-epoch deposit + withdrawals leave the ratio identical to 18 decimals.
 
 ## Decisions
 - Phase 1: solc pinned to 0.8.26 because v4-core PoolManager is `pragma =0.8.26`.
@@ -68,6 +68,7 @@ Result: `forge test` 160 passed, 0 failed (Execution 40, MandateLib 45, IntentVe
 - Rebalance gas (~687k for swap + 3->3) is from a warm-storage test; re-measure on the fork test (3c). Demo/web must add SWAP_RESERVE_GAS to swap gas estimates for in-swap execution.
 - No reentrancy test (needs a malicious token). `nonReentrant` is on deposit and withdraw.
 - GitHub repo is private; CLAUDE.md says public (user's call: keep private for now).
+- Performance fee has no per-depositor equalization: whoever holds at close shares the fee, so a deposit just before close pays a little of it and a withdrawal just before skips it. Dust at 5-minute epochs; list in README limits (`shortcut:` comment in closeEpoch).
 - SIZE BUDGET: BridleHook has 1,085 B left for 2c (safe-mode flag) and 3a (amendments). Plan: amendments live in the vault and call one small vault-only setter on the hook.
 - closeEpoch is permissionless, so whoever closes first picks the exact oracle reading inside the window after the epoch ends. The 3c Reactive watcher should close promptly.
 - Anyone can deploy a vault naming any curator. 2c's idle-epoch liveness must not harm a curator who never queued an intent for that vault.
