@@ -13,19 +13,22 @@ Source of truth for status. Read at the start of every session. Workflow: see CL
 | 3b Invariant suite + MandateLib fuzz | Nov 30 | feat/phase-3b-invariants | done, merged (PR #7) |
 | 3c Unichain Sepolia deploy script + fork test | Dec 1 | feat/phase-3c-deploy | done, merged (PR #8) |
 | 3d Reactive watcher (cut order #4; needs Lasna REACT) | Dec 1 | feat/phase-3d-reactive | not started |
-| 4a Web, read-only: leaderboard + vault page | Dec 2 | feat/phase-4a-web | done (Nov 23), awaiting review + merge |
-| 4b Web, wallet: faucet, deposit/withdraw, curator console + live pre-check | Dec 2 | feat/phase-4b-wallet | not started |
+| 4a Web, read-only: leaderboard + vault page | Dec 2 | feat/phase-4a-web | done, merged (PR #9) |
+| 4b Web, wallet: faucet, deposit/withdraw, curator console + live pre-check | Dec 2 | feat/phase-4b-wallet | in progress |
 | 4c Agent, demo script, README | Dec 3 | feat/phase-4c-ship | not started |
 
-## Current milestone: 4a (done) Web, read-only (leaderboard + vault page)
-Acceptance (CLAUDE.md phase 4, split): web (leaderboard, vault page with NAV vs hold chart + amendment banner). Reads the live Unichain Sepolia contracts; no wallet needed. The index is labelled "gross of fees" (outside review).
+## Current milestone: 4b Web, wallet actions
+Acceptance (CLAUDE.md phase 4, split): curator console with live pre-check; depositors can get test tokens, deposit and withdraw from the vault page. Then the first real activity on testnet.
 
-- [x] web/ Next.js (static export) + viem only; versions pinned >= 2 weeks old (next 15.5.28, react 19.1.10, viem 2.57.17, typescript 5.9.3); 41 packages
-- [x] Leaderboard: the three vaults ranked by index; curator, index (gross of fees), hwm, epochs, good epochs, status (active / not bonded / safe mode)
-- [x] Vault page: NAV per share vs hold (SVG chart, hold line = NAV / index), mandate terms, amendment banner with countdown and changed terms, safe-mode/breach banner, live positions, bond, capacity, oracle vs pool price and band status, track-record table
-- [x] `npm run build` + `tsc --noEmit` pass; pages loaded in a browser against the live contracts
-
-Result: in the browser (localhost, live Unichain Sepolia): leaderboard shows the three curators from the deployment, index 1.0000, 0 epochs, "Not bonded" (true: no curator has bonded yet). Steady page: oracle $1,724.14 = the Chainlink answer, pool at the same price, "within the 1% band", mandate terms match Deploy.s.sol. Reckless page: DemoFeed 82 min old -> "Oracle stale", 5% breach line. No console errors. Not yet seen with live data: the chart, amendment banner, positions and track-record table (nothing has happened on-chain yet; 4b's wallet actions and the demo create that).
+- [x] Wallet: injected wallet (EIP-1193) through viem only, switch/add Unichain Sepolia; connect button in the header
+- [x] Faucet: mint tWETH + tUSDC (open mint on the test tokens)
+- [x] Deposit: one amount in, the other at the pool price; exact approvals; simulate first to show shares and amounts, minShares = 99% of the simulation
+- [x] Withdraw: shares in, simulate for amounts, mins = 99%; works in any state (no band/oracle needed)
+- [x] Curator console (shown to the curator only): lockBond; edit ranges; live pre-check (TS port of checkRanges + turnover vs current positions + band, staleness, cooldown) with a plain reason per failure; sign EIP-712 intent, simulate queueIntent on chain, send
+- [x] Permissionless buttons: execute the queued intent, close the epoch, move the pool back to the oracle price (Uniswap's PoolSwapTest 0x9140a78c1a137c7ff1c151ec8231272af78a99a4, `manager()` = our PoolManager)
+- [x] One runnable self-check for the pre-check port (node --test)
+- [x] tsc + `npm test` (4 pass) + build pass; vault page in the browser: live pre-check flips the right check per broken term, presets in mandate, no overflow at 375 px
+- [ ] Real path with a wallet (user): faucet, realign pool, deposit, lockBond, sign + queue, execute, close epoch, withdraw
 
 ## Deployment (Unichain Sepolia, chain 1301)
 Kept across milestones. Deployed Nov 23 by the user (`contracts/script/deploy-unichain-sepolia.sh`, keystore account), block 68579557; record in `contracts/broadcast/Deploy.s.sol/1301/run-latest.json`. Source verification: `contracts/script/verify-unichain-sepolia.sh` (all seven contracts verified on Blockscout: BridleHook, tWETH, tUSDC, DemoFeed and the three vaults).
@@ -110,6 +113,9 @@ Verified on chain 1301 (Nov 23):
 - 4a redesign, round 3 (user, Nov 23: polish, spacing, natural to the brand, intuitive flow): one spacing scale (4..136 px), one type scale, a 1280 px container with fluid gutters, 136 px section rhythm, art that bleeds to the window edge. Flow: understand (hero) -> compare (every vault's score as one chart + ruled stats) -> choose (filterable vault table, rows open the vault) -> how it works (blue engraved panel + 4 steps) -> temperaments (strip entries) -> "your exit never closes" band. Vault page: back link, hero, three depositor answers, one share vs holding chart + stats, positions + prices, the signed rules in plain language, track record. Empty states explain why (nothing scored yet) instead of showing zeros.
 - Logo, round 3 (user's direction): a drawn lowercase b in one stroke, like a reversed tilted alpha; the loop is filled cobalt and the crossing is the vermilion knot. Wordmark "bridle" outlined from Archivo (OFL). The site only carries web/public/logo.svg and the favicon (web/app/icon.svg). The full brand kit (logo, logo-light, mark, mark-light, plus brand/index.html with SVG/PNG downloads and colours) lives in /brand, excluded through .git/info/exclude: local only, never committed or published.
 - 4a: the old "4b Agent, demo, README" is now 4c; 4b is the wallet half of the web app (faucet, deposit/withdraw, curator console with live pre-check).
+- 4b: no wagmi. The wallet is viem's `custom(window.ethereum)` transport plus a tiny store (connect, switch/add chain, account changes): it saves two dependencies (wagmi + react-query) for about 60 lines. The pre-check is a TS port of MandateLib for instant feedback while editing; before signing, the queueIntent call is simulated on chain, which is the authoritative check. Not in the UI (curators can use cast): proposeAmendment, requestUnbond/completeUnbond.
+- 4b: testnet pools drift out of the 1% band because nobody trades them (Steady: pool $1,724 vs oracle $1,767 on Nov 23), which pauses deposits and moves. Anyone can press "Move pool to the oracle price": a swap through Uniswap's PoolSwapTest with the oracle price as the limit. With no liquidity in range it costs nothing (simulated with cast: delta 0); with liquidity it spends the caller's test tokens like any arbitrage.
+- 4b: range inputs are uncontrolled text (a controlled number input turned a typed "-" into 0, found in the browser).
 
 ## Known issues
 - SIZE BUDGET: BridleHook has 1.4 KB left. 2b must put epoch close / NAV / index / fee math in BridleVault + TrackRecord (as the CLAUDE.md layout already says) and keep only small hooks (views, safe-mode flag) in BridleHook. Making MandateLib an external library saves only ~0.4 KB.
@@ -129,4 +135,4 @@ Verified on chain 1301 (Nov 23):
 - Fixed in 2d: anyone could deploy a vault naming any curator. Now such a vault takes no intents until that curator posts a bond, and it costs the curator nothing.
 
 ## Next
-Milestone 4b, web wallet actions (branch `feat/phase-4b-wallet`): connect a wallet (wagmi, injected) on Unichain Sepolia; tWETH/tUSDC faucet; deposit (with amount maxes + minShares) and withdraw (amount mins) on the vault page; curator console: pick ranges, live pre-check against the mandate (TS port of checkRanges + turnover vs current positions + band/staleness/cooldown), sign the EIP-712 intent and queue it; lockBond. Then run the first real activity on testnet so the chart, positions and track record have data.
+Milestone 4b, web wallet actions (branch `feat/phase-4b-wallet`): connect a wallet (injected) on Unichain Sepolia; tWETH/tUSDC faucet; deposit (with amount maxes + minShares) and withdraw (amount mins) on the vault page; curator console: pick ranges, live pre-check against the mandate (TS port of checkRanges + turnover vs current positions + band/staleness/cooldown), sign the EIP-712 intent and queue it; lockBond. Then run the first real activity on testnet so the chart, positions and track record have data.
