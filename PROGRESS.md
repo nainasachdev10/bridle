@@ -10,24 +10,40 @@ Source of truth for status. Read at the start of every session. Workflow: see CL
 | 2c Bond, breach, safe mode, liveness | Nov 28 | feat/phase-2c-breach | done, merged (PR #4) |
 | 2d Curator-posted bond (added after an outside review) | Nov 23 | feat/phase-2d-bond | done, merged (PR #5) |
 | 3a Amendments + capacity | Nov 29 | feat/phase-3a-amendments | done, merged (PR #6) |
-| 3b Invariant suite + MandateLib fuzz | Nov 30 | feat/phase-3b-invariants | done (Nov 23), awaiting review + merge |
-| 3c Reactive watcher, Unichain Sepolia deploy, fork test | Dec 1 | feat/phase-3c-deploy | not started |
+| 3b Invariant suite + MandateLib fuzz | Nov 30 | feat/phase-3b-invariants | done, merged (PR #7) |
+| 3c Unichain Sepolia deploy script + fork test | Dec 1 | feat/phase-3c-deploy | in progress (started Nov 23) |
+| 3d Reactive watcher (cut order #4; needs Lasna REACT) | Dec 1 | feat/phase-3d-reactive | not started |
 | 4a Web (leaderboard, vault page, curator console) | Dec 2 | feat/phase-4a-web | not started |
 | 4b Agent, demo script, README | Dec 3 | feat/phase-4b-ship | not started |
 
-## Current milestone: 3b (done) Invariant suite + MandateLib fuzz
-Acceptance (CLAUDE.md phase 3 + "Invariants"): Foundry handler; the 5 invariants; MandateLib fuzzed against a simple reference implementation. Invariant tests are on the never-cut list.
+## Current milestone: 3c Unichain Sepolia deploy script + fork test
+Acceptance (CLAUDE.md phase 3 + security rules): deploy to Unichain Sepolia with the real Chainlink feed; validate hook address bits with Hooks.validateHookPermissions in the deploy script; fork test. Outside review: two kinds of vault (real feed; labelled demo feed for the breach scene), maxStaleness from the real feed's heartbeat.
 
-- [x] Handler: deposit, withdraw, rebalance (queue + execute), swap (price-limited), closeEpoch, warp, moveOracle (+ arbitrage to the oracle). Amend runs once in setUp (tightens maxDrawdownBps to 2% so breaches happen); bond flows stay in unit tests
-- [x] Inv 1a: claims == idle accounting; recorded liquidity == PoolManager's. Inv 1b: rounding favours the vault (per-share liquidity and idle never drop for those who stay)
-- [x] Inv 2: epoch turnover <= cap; count, width, spacing of live positions
-- [x] Inv 3: everyone can withdraw everything at any point (and the handler's own withdraw never reverts)
-- [x] Inv 4: fee only above the previous hwm; hwm never decreases
-- [x] Inv 5: a breach never lowers any holder's share of the vault
-- [x] MandateLib fuzz vs reference (checkRanges pass/fail, turnover computed as (sumOld + sumNew)/2 - overlap)
-- [x] forge test green
+Verified on chain 1301 (Nov 23):
+- PoolManager `0x00b036b58a818b1bc34d502d3fe730db729e62ac` (developers.uniswap.org v4 deployments; 24,009 B of code)
+- PoolSwapTest `0x9140a78c1a137c7ff1c151ec8231272af78a99a4`, CREATE2 factory `0x4e59b44847b379578588920cA78FbF26c0B4956C` present
+- Chainlink ETH/USD `0xd9c93081210dFc33326B2af4C2c11848095E6a9a` (reference-data-directory feeds-ethereum-testnet-sepolia-unichain-1.json): 8 decimals, heartbeat 86,400 s, deviation 0.5%; description() = "ETH / USD", answer 1724.14, updated 105 min before the check
 
-Result: `forge test` 220 passed, 0 failed (unit 212 + fuzz 2 + invariants 6). Invariants: 64 runs x 64 calls = 4,096 calls each, 0 unexpected reverts; call mix ~530-630 per handler function. Across one full run (probe, not kept): 219 rebalances, 276 epoch closes, 9 breaches, 9 runs continuing in safe mode. Mutation check: rounding withdrawals up passed the first version of the suite; adding inv 1b catches it (fails with idle0/share). Review fix: `fail_on_revert = true`, so a reverting handler call (e.g. a partial withdrawal) fails the run; a mutation that reverts some partial withdrawals now fails it.
+- [x] script/Deploy.s.sol: test tokens (mintable tWETH 18 / tUSDC 6), hook at a mined CREATE2 address (standard factory, so the address is the same in a broadcast and a fork) + Hooks.validateHookPermissions, owner-only DemoFeed, three vaults (Steady fee 3000/60 + Agent 500/10 on the real feed, Reckless 10000/200 on the demo feed with a 5% drawdown line), pools initialized at the oracle price
+- [x] maxStaleness 25 h for the real feed (24 h heartbeat + margin); demo feed 1 h
+- [x] Fork test (test/fork, runs only with UNICHAIN_SEPOLIA_RPC set): deploy against the real PoolManager + feed; hook price == Chainlink within 0.01%; deposit, bond, 3-range rebalance inside a real swap through Uniswap's PoolSwapTest, epoch close
+- [x] Broadcast (Nov 23, block 68579557, by the user via `script/deploy-unichain-sepolia.sh`, keystore account): 10 transactions, all status success, ~0.0000092 ETH. Record: `broadcast/Deploy.s.sol/1301/run-latest.json`
+- [ ] Source verification on Blockscout: 1 of 7 verified at deploy time, the rest hit Blockscout's rate limit. Rerun `script/verify-unichain-sepolia.sh` (verification only, no transactions)
+
+Deployed on Unichain Sepolia (1301), checked on chain after the broadcast (code size, curator, symbol, pool initialized):
+
+| Contract | Address |
+|---|---|
+| BridleHook (24,087 B, same as the local build) | 0x5a2017AA16Cde9e88f5e8Ed0928FFBcff1eA6880 |
+| tWETH (test token, open faucet) | 0x01163d86A5A3a818879f116e3cd66d5aff8aC855 |
+| tUSDC (test token, open faucet) | 0x518a298ffACd7703c45C397823DDfD4C158ABBEF |
+| DemoFeed (owner = deployer) | 0x3353E250A2aF035e4AfC86615186d6CDf9f16E9e |
+| Steady vault, bSTEADY, real Chainlink feed, curator 0x7562186636EB363D639e1328049F994BaF7aC55c | 0x38dE68042435098bE0c8296a2F6FC0b3c22F7372 |
+| Agent vault, bAGENT, real Chainlink feed, curator 0xE970f10dc6F08fb66ef2a2A601eA7B652F4257D3 | 0x5eFD71dB1A7dA5e3314Be8112174a76c26b20495 |
+| Reckless vault, bRECK, DEMO feed, curator 0x4eC233D41dD12B74076FeCFeE8a761DC2D20658C | 0xd0F560B18D535acc5C3F1ED6620de35eE0D8760F |
+| Deployer | 0x52825Ac547d3Ed00C33488E571074e1B55577a97 |
+
+Result: `forge test` 220 passed, 1 skipped (fork test without the RPC). With `UNICHAIN_SEPOLIA_RPC=https://sepolia.unichain.org`: 3/3 fork tests pass. Cold-storage gas on the fork: swap + first 3-range deployment in beforeSwap 576,240; closeEpoch with 3 positions 427,293. Simulated deploy (no broadcast): 24.3M gas, ~0.000024 ETH; hook address 0x5a2017AA16Cde9e88f5e8Ed0928FFBcff1eA6880 (fixed by CREATE2 mining).
 
 ## Decisions
 - Phase 1: solc pinned to 0.8.26 because v4-core PoolManager is `pragma =0.8.26`.
@@ -81,6 +97,11 @@ Result: `forge test` 220 passed, 0 failed (unit 212 + fuzz 2 + invariants 6). In
 - 3b: breaches need a tighter line than the 10% test mandate in a 64-step random walk, so setUp amends maxDrawdownBps to 2% through proposeAmendment/applyAmendment.
 - 3b: invariant 1 is checked in two parts: exact accounting (claims and liquidity) and rounding direction (per-share holdings never drop on a withdrawal). The first version only had the first part and missed a rounding-up mutation.
 
+- 3c: test tokens are our own mintable tWETH/tUSDC (open faucet), not Unichain's WETH/USDC, so demo users and curators can get funds. The real vaults still price them with the real Chainlink ETH/USD feed.
+- 3c: DemoFeed is owner-only (unlike the test MockAggregator), so only the deployer can move the demo vault's price for the breach scene. Its description says "not Chainlink".
+- 3c: the Reckless (demo) vault uses a 5% drawdown line so the breach scene needs only a modest price move.
+- 3c review: DemoFeed's owner-only `set` has a unit test (DemoFeed.t.sol); a mutation that drops the check fails it.
+
 ## Known issues
 - SIZE BUDGET: BridleHook has 1.4 KB left. 2b must put epoch close / NAV / index / fee math in BridleVault + TrackRecord (as the CLAUDE.md layout already says) and keep only small hooks (views, safe-mode flag) in BridleHook. Making MandateLib an external library saves only ~0.4 KB.
 - Rebalance sandwich: someone can push the pool price inside the band, then trigger execution; the loss is bounded by oracleBandBps. Inherent to the design; the band is the mitigation.
@@ -90,6 +111,7 @@ Result: `forge test` 220 passed, 0 failed (unit 212 + fuzz 2 + invariants 6). In
 - Repo is public now (as CLAUDE.md says).
 - Performance fee has no per-depositor equalization: whoever holds at close shares the fee, so a deposit just before close pays a little of it and a withdrawal just before skips it. Dust at 5-minute epochs; list in README limits (`shortcut:` comment in closeEpoch).
 - Safe-mode unwind removes liquidity at the pool price. Someone who pushes the pool price within our liquidity just before a breaching close changes which tokens the vault ends up holding; it costs them the swap, and the vault keeps the fees.
+- Demo (4b): the Reckless vault treats a DemoFeed price older than 1 hour as stale (deposits, rebalances and epoch close revert OracleStale; withdrawals still work). The demo script must call `DemoFeed.set` (same price is fine) before each scene and at least every 50 minutes.
 - Demo (3c/4b), from the outside review: two vaults. One on the real Unichain Sepolia Chainlink ETH/USD feed, and one clearly labelled demo vault on MockAggregator for the breach scene (the real price can't be moved on camera). Set maxStaleness from the real feed's heartbeat, or closeEpoch reverts OracleStale with 5-minute epochs. The UI labels the index "gross of fees" (it's measured before the fee is minted).
 - Demo (3c/4b): nobody arbitrages a testnet pool, so after any >1% ETH move the pool sits out of band and no rebalance or deposit can run. The demo script must swap the pool back to the oracle price; the curator keeps an intent queued to stay "present".
 - 3b gaps: the invariant runs never reach idle-epoch liveness (needs 12+ epochs of no rebalance in 64 steps) and use a single pool; liveness and multi-pool isolation are covered by unit tests (SafeMode, Execution).
