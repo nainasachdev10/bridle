@@ -8,25 +8,24 @@ Source of truth for status. Read at the start of every session. Workflow: see CL
 | 2a Execution path + oracle guard | Nov 24-25 | feat/phase-2a-execution | done, merged (PR #2) |
 | 2b Epochs, NAV, index, HWM fee | Nov 26-27 | feat/phase-2b-epochs | done, merged (PR #3) |
 | 2c Bond, breach, safe mode, liveness | Nov 28 | feat/phase-2c-breach | done, merged (PR #4) |
-| 2d Curator-posted bond (added after an outside review) | Nov 23 | feat/phase-2d-bond | done (Nov 23), awaiting review + merge |
-| 3a Amendments + capacity | Nov 29 | feat/phase-3a-amendments | not started (plan drafted, see Next) |
+| 2d Curator-posted bond (added after an outside review) | Nov 23 | feat/phase-2d-bond | done, merged (PR #5) |
+| 3a Amendments + capacity | Nov 29 | feat/phase-3a-amendments | done (Nov 23), awaiting review + merge |
 | 3b Invariant suite + MandateLib fuzz | Nov 30 | feat/phase-3b-invariants | not started |
 | 3c Reactive watcher, Unichain Sepolia deploy, fork test | Dec 1 | feat/phase-3c-deploy | not started |
 | 4a Web (leaderboard, vault page, curator console) | Dec 2 | feat/phase-4a-web | not started |
 | 4b Agent, demo script, README | Dec 3 | feat/phase-4b-ship | not started |
 
-## Current milestone: 2d (done) Curator-posted bond
-Why (outside review, Nov 23): the only bond so far is the last epoch's fee, and a curator heading into a breach has usually been losing, so there is nothing to burn. Also, anyone can deploy a vault naming any curator.
-Acceptance: the curator locks their own vault shares as a bond; the vault takes no intents until the named curator's bond >= minBond (set at creation); unbonding needs notice (requestUnbond, completeUnbond only after the next close) and stays burnable during it; a breach burns the posted bond + the pending fee bond; the fee bond is released only when there was no breach; invariant 5 with a non-zero posted bond.
+## Current milestone: 3a (done) Amendments + capacity
+Acceptance (CLAUDE.md phase 3): amendments (delay, exit before apply, immutable fields); capacity: cap = baseCap * min(1 + goodEpochs, maxMultiplier), good epoch = ratio >= 1.0, CapacityExceeded. Security: fee cap, safe-mode rules and in-kind withdrawal immutable; no lockups or exit fees. Events AmendmentProposed, AmendmentApplied.
 
-- [x] Vault: `minBond` (constructor, > 0), `lockBond(shares)` (curator only, not in safe mode), `postedBond`, `requestUnbond(shares)`, `completeUnbond()` after the next close, `isActive()` = bond (minus pending unbond) >= minBond and not in safe mode
-- [x] Hook: `queueIntent` reverts CuratorNotActive unless the vault says active (replaces the safe-mode check there)
-- [x] closeEpoch: breach burns posted bond + pending fee bond (Breach.bondBurned = both); fee bond released only without a breach
-- [x] Tests: Bond.t.sol (10) + 2 breach tests in SafeMode.t.sol; existing tests bond the curator via `bondCurator()` in the fixture
-- [x] CLAUDE.md: posted-bond rule in Key formulas; PROGRESS: 3c demo notes
+- [x] Vault: `proposeAmendment(Mandate)` (curator only, not in safe mode): validateMandate; perfFeeBps and maxDrawdownBps can only go down; epochLength fixed; amendmentDelay can only go up; applies after the CURRENT delay; a new proposal restarts the clock; AmendmentProposed
+- [x] Vault: `applyAmendment()` (permissionless, after the delay, not in safe mode) -> hook `setMandate` (vault-only); AmendmentApplied; `pendingMandate` + `amendmentApplyAfter` public for the web banner
+- [x] Exit before apply: tested (withdraw during the window)
+- [x] Capacity: baseCap + maxMultiplier in the constructor; goodEpochs counted in closeEpoch; deposit reverts CapacityExceeded above the cap (shares)
+- [x] Tests: Amendments.t.sol (21)
 - [x] forge build + forge test green; hook under 24 KB
 
-Result: `forge test` 190 passed, 0 failed (MandateLib 45, Execution 40, IntentVerifier 19, BridleVault 18, Epochs 17, SafeMode 19, BridleHook 13, Bond 10, OracleGuard 9). Sizes: BridleHook 23,974 B (602 B under the limit), BridleVault 12,822 B. The outside review's scenario is a test now: a curator who only lost (no fee bond) breaches, the 1e18 posted bond is burned and alice's claim per share rises by > 0.5%. Mutation check: not burning the posted bond fails 3 tests.
+Result: `forge test` 211 passed, 0 failed (MandateLib 45, Execution 40, Amendments 21, IntentVerifier 19, SafeMode 19, BridleVault 18, Epochs 17, BridleHook 13, Bond 10, OracleGuard 9). Sizes: BridleHook 24,088 B (488 B under the limit), BridleVault 16,168 B. Mutation checks: removing the drawdown-only-tighter rule, the delay, or the capacity check each fails its test.
 
 ## Decisions
 - Phase 1: solc pinned to 0.8.26 because v4-core PoolManager is `pragma =0.8.26`.
@@ -71,6 +70,10 @@ Result: `forge test` 190 passed, 0 failed (MandateLib 45, Execution 40, IntentVe
 - 2d: a breach burns posted bond + pending fee bond; the curator's other (unlocked) shares are untouched. A liveness safe mode burns nothing, and the curator can still unbond afterwards.
 - 2d: the breach check already ran before the fee-bond release since 2c (`r.breached` is computed first); the review was written against 2b.
 
+- 3a: amendments live in the vault; the hook only gained a vault-only `setMandate`. Rules on top of validateMandate: perfFeeBps only down, maxDrawdownBps only down (a losing curator can't move the breach line away), epochLength fixed (it numbers the epochs and the turnover cap), amendmentDelay only up. The CURRENT delay applies, so lengthening the delay in a proposal doesn't help that proposal. Curator address is not part of the mandate, so the bond rules are unaffected.
+- 3a: size: `poolConfig()` (returned the whole nested struct) cost ~800 B of ABI-encoding code. Replaced by `curatorOf` and `mandateOf`; the feed is checked through `oracleSqrtPriceX96`.
+- 3a: capacity is in shares (deposit reverts if totalSupply would pass it). An all-idle epoch scores exactly 1.0 and counts as good, so capacity also grows in safe mode; harmless, deposits are blocked there.
+
 ## Known issues
 - SIZE BUDGET: BridleHook has 1.4 KB left. 2b must put epoch close / NAV / index / fee math in BridleVault + TrackRecord (as the CLAUDE.md layout already says) and keep only small hooks (views, safe-mode flag) in BridleHook. Making MandateLib an external library saves only ~0.4 KB.
 - Rebalance sandwich: someone can push the pool price inside the band, then trigger execution; the loss is bounded by oracleBandBps. Inherent to the design; the band is the mitigation.
@@ -82,17 +85,9 @@ Result: `forge test` 190 passed, 0 failed (MandateLib 45, Execution 40, IntentVe
 - Safe-mode unwind removes liquidity at the pool price. Someone who pushes the pool price within our liquidity just before a breaching close changes which tokens the vault ends up holding; it costs them the swap, and the vault keeps the fees.
 - Demo (3c/4b), from the outside review: two vaults. One on the real Unichain Sepolia Chainlink ETH/USD feed, and one clearly labelled demo vault on MockAggregator for the breach scene (the real price can't be moved on camera). Set maxStaleness from the real feed's heartbeat, or closeEpoch reverts OracleStale with 5-minute epochs. The UI labels the index "gross of fees" (it's measured before the fee is minted).
 - Demo (3c/4b): nobody arbitrages a testnet pool, so after any >1% ETH move the pool sits out of band and no rebalance or deposit can run. The demo script must swap the pool back to the oracle price; the curator keeps an intent queued to stay "present".
-- SIZE BUDGET: BridleHook has 702 B left for 3a (amendments). Plan: amendments live in the vault and call one small vault-only setter on the hook.
+- SIZE BUDGET: BridleHook has 488 B left. 3c (Reactive callbacks) should live in a separate contract. Plan: amendments live in the vault and call one small vault-only setter on the hook.
 - closeEpoch is permissionless, so whoever closes first picks the exact oracle reading inside the window after the epoch ends. The 3c Reactive watcher should close promptly.
 - Fixed in 2d: anyone could deploy a vault naming any curator. Now such a vault takes no intents until that curator posts a bond, and it costs the curator nothing.
 
 ## Next
-Milestone 3a, Amendments + capacity (branch `feat/phase-3a-amendments`, plan drafted in an earlier session):
-Acceptance (CLAUDE.md phase 3): amendments (delay, exit before apply, immutable fields); capacity: cap = baseCap * min(1 + goodEpochs, maxMultiplier), good epoch = ratio >= 1.0, CapacityExceeded. Security: fee cap, safe-mode rules and in-kind withdrawal immutable; no lockups or exit fees. Events AmendmentProposed, AmendmentApplied.
-- [ ] Vault: `proposeAmendment(Mandate)` (curator only): validateMandate; perfFeeBps can only go down; epochLength can't change (it numbers the epochs); amendmentDelay can only go up; not in safe mode; applies after the CURRENT amendmentDelay; replacing a proposal restarts the clock; AmendmentProposed
-- [ ] Vault: `applyAmendment()` (permissionless, after the delay, not in safe mode) -> hook `setMandate` (vault-only, tiny: 702 B left); AmendmentApplied; pending mandate + applyAfter public for the web banner
-- [ ] Exit before apply: withdrawals already work any time; test it during the window
-- [ ] Capacity: constructor baseCap + maxMultiplier; goodEpochs counted in closeEpoch; deposit reverts CapacityExceeded above the cap (cap in shares)
-- [ ] Tests for every revert, the delay boundary, the new mandate being enforced after apply, capacity growth and its ceiling
-- [ ] forge build + forge test green; hook under 24 KB
-
+Milestone 3b, invariant suite + MandateLib fuzz (branch `feat/phase-3b-invariants`): Foundry handler with deposit, withdraw, queue, execute, swap, closeEpoch, amend, warp, moveOracle (+ lockBond/unbond); the 5 CLAUDE.md invariants (claims == hook holdings with rounding for the vault; turnover <= cap and live positions satisfy distance/width/count; any holder can always withdraw in kind; fee only when index > hwm, hwm non-decreasing; after a breach non-curator claim per share >= before); MandateLib fuzzed against a simple reference implementation. Record runs/depth for the README.
