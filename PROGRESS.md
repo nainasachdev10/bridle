@@ -21,10 +21,10 @@ Acceptance (CLAUDE.md phase 2, part c + security rules): breach when index < pea
 - [x] Vault closeEpoch: breach check (MandateLib.isBreached, peak = hwm) -> burn the pending bond instead of releasing it, Breach event, safe mode
 - [x] Vault closeEpoch: liveness -> more than maxIdleEpochs since the last rebalance (or the first deposit) -> safe mode, no burn
 - [x] Safe mode: deposits revert, no fee, closeEpoch and withdrawals keep working; EpochRecord.breached
-- [x] Tests (14): breach, invariant 5, liveness edges, everything blocked/allowed in safe mode
+- [x] Tests (15): breach, invariant 5, liveness edges, everything blocked/allowed in safe mode
 - [x] forge build + forge test green; hook under 24 KB
 
-Result: `forge test` 175 passed, 0 failed (MandateLib 45, Execution 40, IntentVerifier 19, BridleVault 18, Epochs 17, SafeMode 14, BridleHook 13, OracleGuard 9). Sizes: BridleHook 23,874 B (702 B under the limit), BridleVault 10,743 B. Breach scenario: +-1.2% range, price 1.0 -> 1.3 scores 0.8737 (hand estimate ~0.87) and breaches the 10% drawdown. Mutation check: disabling the bond burn fails 2 tests.
+Result: `forge test` 176 passed, 0 failed (MandateLib 45, Execution 40, IntentVerifier 19, BridleVault 18, Epochs 17, SafeMode 15, BridleHook 13, OracleGuard 9). Sizes: BridleHook 23,874 B (702 B under the limit), BridleVault 11,169 B. Breach scenario: +-1.2% range, price 1.0 -> 1.3 scores 0.8737 (hand estimate ~0.87) and breaches the 10% drawdown. Mutation check: disabling the bond burn fails 2 tests.
 
 ## Decisions
 - Phase 1: solc pinned to 0.8.26 because v4-core PoolManager is `pragma =0.8.26`.
@@ -61,7 +61,7 @@ Result: `forge test` 175 passed, 0 failed (MandateLib 45, Execution 40, IntentVe
 - 2c: "suspend curator" = safe mode. Safe mode is one-way and per vault: queued intent dropped, no new intents, every position pulled back to idle, deposits revert, no fee. Withdrawals and closeEpoch keep working (an all-idle vault scores exactly 1.0). Nothing can turn it off, which keeps the safe-mode rules immutable.
 - 2c: "all bond shares" = the pending bond (last close's fee, still held by the vault). Fees from earlier epochs were already released to the curator after surviving their epoch.
 - 2c: breach and liveness are checked inside closeEpoch, so anyone can trigger them; there's no separate entry point. A breach is reported once (safe mode skips the check afterwards).
-- 2c: liveness = more than maxIdleEpochs epochs since the last successful rebalance (or since the first deposit, if there was none) -> safe mode with reason "idle". No burn: an absent curator hasn't misbehaved, and a curator named on a vault they never used loses nothing.
+- 2c: liveness = more than maxIdleEpochs epochs since the last successful rebalance (or since the first deposit, if there was none) AND no live queued intent -> safe mode with reason "idle". Review fix: a live intent counts as present, because execution can be blocked for a while (pool out of band, stale oracle) through no fault of the curator. No burn: an absent curator hasn't misbehaved, and a curator named on a vault they never used loses nothing.
 - 2c: unwinding reuses a new `_removeAll` (split out of `_moveLiquidity`). Calling `_moveLiquidity` with no ranges cost ~1 KB of hook size because via_ir duplicated it.
 
 ## Known issues
@@ -73,6 +73,7 @@ Result: `forge test` 175 passed, 0 failed (MandateLib 45, Execution 40, IntentVe
 - GitHub repo is private; CLAUDE.md says public (user's call: keep private for now).
 - Performance fee has no per-depositor equalization: whoever holds at close shares the fee, so a deposit just before close pays a little of it and a withdrawal just before skips it. Dust at 5-minute epochs; list in README limits (`shortcut:` comment in closeEpoch).
 - Safe-mode unwind removes liquidity at the pool price. Someone who pushes the pool price within our liquidity just before a breaching close changes which tokens the vault ends up holding; it costs them the swap, and the vault keeps the fees.
+- Demo (3c/4b): nobody arbitrages a testnet pool, so after any >1% ETH move the pool sits out of band and no rebalance or deposit can run. The demo script must swap the pool back to the oracle price; the curator keeps an intent queued to stay "present".
 - SIZE BUDGET: BridleHook has 702 B left for 3a (amendments). Plan: amendments live in the vault and call one small vault-only setter on the hook.
 - closeEpoch is permissionless, so whoever closes first picks the exact oracle reading inside the window after the epoch ends. The 3c Reactive watcher should close promptly.
 - Anyone can deploy a vault naming any curator. 2c's idle-epoch liveness must not harm a curator who never queued an intent for that vault.
