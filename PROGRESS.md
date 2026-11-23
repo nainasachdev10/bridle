@@ -27,7 +27,21 @@ Verified on chain 1301 (Nov 23):
 - [x] script/Deploy.s.sol: test tokens (mintable tWETH 18 / tUSDC 6), hook at a mined CREATE2 address (standard factory, so the address is the same in a broadcast and a fork) + Hooks.validateHookPermissions, owner-only DemoFeed, three vaults (Steady fee 3000/60 + Agent 500/10 on the real feed, Reckless 10000/200 on the demo feed with a 5% drawdown line), pools initialized at the oracle price
 - [x] maxStaleness 25 h for the real feed (24 h heartbeat + margin); demo feed 1 h
 - [x] Fork test (test/fork, runs only with UNICHAIN_SEPOLIA_RPC set): deploy against the real PoolManager + feed; hook price == Chainlink within 0.01%; deposit, bond, 3-range rebalance inside a real swap through Uniswap's PoolSwapTest, epoch close
-- [ ] Broadcast: user runs the commands (keystore account, never a key in a file); addresses recorded here afterwards
+- [x] Broadcast (Nov 23, block 68579557, by the user via `script/deploy-unichain-sepolia.sh`, keystore account): 10 transactions, all status success, ~0.0000092 ETH. Record: `broadcast/Deploy.s.sol/1301/run-latest.json`
+- [ ] Source verification on Blockscout: 1 of 7 verified at deploy time, the rest hit Blockscout's rate limit. Rerun `script/verify-unichain-sepolia.sh` (verification only, no transactions)
+
+Deployed on Unichain Sepolia (1301), checked on chain after the broadcast (code size, curator, symbol, pool initialized):
+
+| Contract | Address |
+|---|---|
+| BridleHook (24,087 B, same as the local build) | 0x5a2017AA16Cde9e88f5e8Ed0928FFBcff1eA6880 |
+| tWETH (test token, open faucet) | 0x01163d86A5A3a818879f116e3cd66d5aff8aC855 |
+| tUSDC (test token, open faucet) | 0x518a298ffACd7703c45C397823DDfD4C158ABBEF |
+| DemoFeed (owner = deployer) | 0x3353E250A2aF035e4AfC86615186d6CDf9f16E9e |
+| Steady vault, bSTEADY, real Chainlink feed, curator 0x7562186636EB363D639e1328049F994BaF7aC55c | 0x38dE68042435098bE0c8296a2F6FC0b3c22F7372 |
+| Agent vault, bAGENT, real Chainlink feed, curator 0xE970f10dc6F08fb66ef2a2A601eA7B652F4257D3 | 0x5eFD71dB1A7dA5e3314Be8112174a76c26b20495 |
+| Reckless vault, bRECK, DEMO feed, curator 0x4eC233D41dD12B74076FeCFeE8a761DC2D20658C | 0xd0F560B18D535acc5C3F1ED6620de35eE0D8760F |
+| Deployer | 0x52825Ac547d3Ed00C33488E571074e1B55577a97 |
 
 Result: `forge test` 220 passed, 1 skipped (fork test without the RPC). With `UNICHAIN_SEPOLIA_RPC=https://sepolia.unichain.org`: 3/3 fork tests pass. Cold-storage gas on the fork: swap + first 3-range deployment in beforeSwap 576,240; closeEpoch with 3 positions 427,293. Simulated deploy (no broadcast): 24.3M gas, ~0.000024 ETH; hook address 0x5a2017AA16Cde9e88f5e8Ed0928FFBcff1eA6880 (fixed by CREATE2 mining).
 
