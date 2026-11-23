@@ -49,7 +49,8 @@ maxOracleDistanceTicks, maxTurnoverBpsPerEpoch, minWidthTicks, maxRanges, oracle
 - Work PER SHARE (deposits/withdrawals happen mid-epoch): at epoch start snapshot holdAmt0PerShare, holdAmt1PerShare; at close holdValuePerShare = value of those at the end oracle price
 - Epoch ratio = navPerShareEnd / holdValuePerShareEnd; index_n = index_{n-1} * ratio (1e18 = 1.0)
 - Fee: if index > hwm: gainFrac = (index - hwm) / index; f = perfFeeBps * gainFrac; mint feeShares = supply * f / (1 - f) to the curator, locked as bond for 1 epoch; hwm = index
-- Breach: index < peakIndex * (1 - maxDrawdownBps) -> suspend curator, burn all bond shares, safe mode
+- Posted bond: the curator locks their own vault shares (>= minBond, set at vault creation) before the vault takes intents; unlocking needs a notice that spans one epoch close, and the bond stays burnable during it
+- Breach: index < peakIndex * (1 - maxDrawdownBps) -> suspend curator, burn all bond shares (posted bond + pending fee bond), safe mode. The breach check runs before the fee bond is released.
 - Capacity: cap = baseCap * min(1 + goodEpochs, maxMultiplier); good epoch = ratio >= 1.0
 
 ## Security rules (non-negotiable)
