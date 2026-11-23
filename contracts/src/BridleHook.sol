@@ -80,13 +80,16 @@ contract BridleHook is BaseHook, IntentVerifier, IUnlockCallback {
         Deposit,
         Withdraw,
         Rebalance,
-        CollectFees
+        CollectFees,
+        Unwind
     }
 
     mapping(PoolId => PoolConfig) internal _pools;
     mapping(PoolId => PoolState) public poolState;
     mapping(PoolId => Position[]) internal _positions;
     mapping(PoolId => QueuedIntent) internal _queued;
+    /// @notice One-way: after a breach or an absent curator the pool only holds. No intents, no positions.
+    mapping(PoolId => bool) public safeMode;
 
     event PoolRegistered(PoolId indexed poolId, address indexed vault, address feed, address indexed curator);
     event IntentQueued(PoolId indexed poolId, address indexed curator, uint256 nonce, uint256 deadline, Range[] ranges);
@@ -102,6 +105,7 @@ contract BridleHook is BaseHook, IntentVerifier, IUnlockCallback {
     error NotSelf();
     error NothingQueued();
     error Slippage();
+    error SafeModeOn();
 
     constructor(IPoolManager _poolManager) BaseHook(_poolManager) {}
 
@@ -238,6 +242,7 @@ contract BridleHook is BaseHook, IntentVerifier, IUnlockCallback {
         PoolConfig storage c = _pools[id];
         if (c.vault == address(0)) revert PoolNotRegistered();
         if (intent.curator != c.curator) revert IMandate.NotCurator();
+        if (safeMode[id]) revert SafeModeOn();
         _useIntent(intent, signature);
         // fail fast on shape; everything is checked again at execution
         int24 oracleTick = TickMath.getTickAtSqrtPrice(oracleSqrtPriceX96(id));
@@ -301,6 +306,14 @@ contract BridleHook is BaseHook, IntentVerifier, IUnlockCallback {
         poolManager.unlock(abi.encode(Action.CollectFees, id, bytes("")));
     }
 
+    /// @notice Vault-only, one-way. Drops the queued intent and pulls every position back to idle.
+    function enterSafeMode(PoolId id) external {
+        if (msg.sender != _pools[id].vault) revert NotVault();
+        safeMode[id] = true;
+        delete _queued[id];
+        poolManager.unlock(abi.encode(Action.Unwind, id, bytes("")));
+    }
+
     function unlockCallback(bytes calldata data) external onlyPoolManager returns (bytes memory) {
         (Action action, PoolId id, bytes memory args) = abi.decode(data, (Action, PoolId, bytes));
         if (action == Action.Rebalance) {
@@ -309,6 +322,10 @@ contract BridleHook is BaseHook, IntentVerifier, IUnlockCallback {
         }
         if (action == Action.CollectFees) {
             _collectFees(id);
+            return "";
+        }
+        if (action == Action.Unwind) {
+            _removeAll(id);
             return "";
         }
         if (action == Action.Deposit) {
@@ -480,16 +497,10 @@ contract BridleHook is BaseHook, IntentVerifier, IUnlockCallback {
     /// idle token. Whatever does not fit a range's ratio stays idle (the hook never swaps).
     /// Deltas are settled as ERC-6909 claims, so the hook's deltas net to zero.
     function _moveLiquidity(PoolId id, uint160 poolSqrt, Range[] memory ranges) internal {
+        _removeAll(id);
         PoolKey storage key = _pools[id].key;
         PoolState storage st = poolState[id];
         Position[] storage ps = _positions[id];
-        for (uint256 i; i < ps.length; ++i) {
-            if (ps[i].liquidity > 0) {
-                _modify(key, ps[i].tickLower, ps[i].tickUpper, -int256(uint256(ps[i].liquidity)));
-            }
-        }
-        delete _positions[id];
-        _netDeltaToIdle(key, st);
 
         uint256 budget0 = st.idle0;
         uint256 budget1 = st.idle1;
@@ -506,6 +517,19 @@ contract BridleHook is BaseHook, IntentVerifier, IUnlockCallback {
             ps.push(Position(r.tickLower, r.tickUpper, r.weightBps, liq));
         }
         _netDeltaToIdle(key, st);
+    }
+
+    /// @dev Removes every position (fees come with it) into idle.
+    function _removeAll(PoolId id) internal {
+        PoolKey storage key = _pools[id].key;
+        Position[] storage ps = _positions[id];
+        for (uint256 i; i < ps.length; ++i) {
+            if (ps[i].liquidity > 0) {
+                _modify(key, ps[i].tickLower, ps[i].tickUpper, -int256(uint256(ps[i].liquidity)));
+            }
+        }
+        delete _positions[id];
+        _netDeltaToIdle(key, poolState[id]);
     }
 
     /// @dev Pokes every position so accrued fees land in idle before any pro-rata math.
