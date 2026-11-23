@@ -71,6 +71,7 @@ contract BridleVault is ERC20, ReentrancyGuardTransient, TrackRecord {
     error ZeroMinBond();
     error BondTooLarge();
     error NoticeNotOver();
+    error InDrawdown();
 
     constructor(
         BridleHook _hook,
@@ -173,6 +174,10 @@ contract BridleVault is ERC20, ReentrancyGuardTransient, TrackRecord {
         uint256 shares = unbondPending;
         if (shares == 0) revert ZeroShares();
         if (currentEpoch <= unbondRequestEpoch) revert NoticeNotOver();
+        // no leaving while underwater: a breach builds over several closes, and a one-close notice alone would
+        // let the curator pull the bond just before it. To leave while losing, stop managing: the vault goes
+        // idle, liveness turns safe mode on, and the bond is free once nothing can breach any more.
+        if (!hook.safeMode(poolId) && index < highWaterMark) revert InDrawdown();
         unbondPending = 0;
         postedBond -= shares;
         _transfer(address(this), cur, shares);

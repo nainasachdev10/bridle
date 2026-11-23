@@ -197,6 +197,37 @@ contract SafeModeTest is BridleFixture {
         vault.completeUnbond();
     }
 
+    /// @dev Reckless curator sees the drawdown building and tries to take the bond out before the breach.
+    function test_unbond_blockedWhileInDrawdown() public {
+        _narrow();
+        _nextEpoch(1.02e8);
+        vault.closeEpoch(); // a loss, no breach yet
+        assertLt(vault.index(), vault.highWaterMark());
+        vm.prank(curator);
+        vault.requestUnbond(MIN_BOND);
+        _nextEpoch(1.02e8);
+        vault.closeEpoch(); // notice served, still underwater
+        vm.prank(curator);
+        vm.expectRevert(BridleVault.InDrawdown.selector);
+        vault.completeUnbond();
+    }
+
+    /// @dev The way out while losing: stop managing; once liveness turns safe mode on, the bond is free.
+    function test_unbond_allowedAfterIdleSafeMode() public {
+        _narrow();
+        _nextEpoch(1.02e8);
+        vault.closeEpoch();
+        vm.prank(curator);
+        vault.requestUnbond(MIN_BOND);
+        _toEpoch(13, 1.02e8);
+        vault.closeEpoch(); // idle -> safe mode, no breach
+        assertTrue(hook.safeMode(id));
+        assertLt(vault.index(), vault.highWaterMark());
+        vm.prank(curator);
+        vault.completeUnbond();
+        assertEq(vault.balanceOf(curator), _curatorFree + MIN_BOND);
+    }
+
     function test_breach_dropsQueuedIntent() public {
         _narrow();
         _churn(5);
