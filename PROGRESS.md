@@ -25,7 +25,7 @@ Acceptance (CLAUDE.md phase 3): amendments (delay, exit before apply, immutable 
 - [x] Tests: Amendments.t.sol (21)
 - [x] forge build + forge test green; hook under 24 KB
 
-Result: `forge test` 211 passed, 0 failed (MandateLib 45, Execution 40, Amendments 21, IntentVerifier 19, SafeMode 19, BridleVault 18, Epochs 17, BridleHook 13, Bond 10, OracleGuard 9). Sizes: BridleHook 24,088 B (488 B under the limit), BridleVault 16,168 B. Mutation checks: removing the drawdown-only-tighter rule, the delay, or the capacity check each fails its test.
+Result: `forge test` 212 passed, 0 failed (MandateLib 45, Execution 40, Amendments 22, IntentVerifier 19, SafeMode 19, BridleVault 18, Epochs 17, BridleHook 13, Bond 10, OracleGuard 9). Sizes: BridleHook 24,087 B (489 B under the limit), BridleVault 16,168 B. Mutation checks: removing the drawdown-only-tighter rule, the delay, or the capacity check each fails its test.
 
 ## Decisions
 - Phase 1: solc pinned to 0.8.26 because v4-core PoolManager is `pragma =0.8.26`.
@@ -71,6 +71,7 @@ Result: `forge test` 211 passed, 0 failed (MandateLib 45, Execution 40, Amendmen
 - 2d: the breach check already ran before the fee-bond release since 2c (`r.breached` is computed first); the review was written against 2b.
 
 - 3a: amendments live in the vault; the hook only gained a vault-only `setMandate`. Rules on top of validateMandate: perfFeeBps only down, maxDrawdownBps only down (a losing curator can't move the breach line away), epochLength fixed (it numbers the epochs and the turnover cap), amendmentDelay only up. The CURRENT delay applies, so lengthening the delay in a proposal doesn't help that proposal. Curator address is not part of the mandate, so the bond rules are unaffected.
+- 3a review fix: oracleBandBps is capped at 5% (MandateLib.MAX_BAND_BPS) at creation and in amendments. Before, any band < 100% passed, so a curator could amend to a 99% band and sandwich their own rebalance (push the price, execute, swap back) against depositors who didn't exit in the window.
 - 3a: size: `poolConfig()` (returned the whole nested struct) cost ~800 B of ABI-encoding code. Replaced by `curatorOf` and `mandateOf`; the feed is checked through `oracleSqrtPriceX96`.
 - 3a: capacity is in shares (deposit reverts if totalSupply would pass it). An all-idle epoch scores exactly 1.0 and counts as good, so capacity also grows in safe mode; harmless, deposits are blocked there.
 
