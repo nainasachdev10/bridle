@@ -115,6 +115,22 @@ contract EpochsTest is BridleFixture {
         assertEq(vault.highWaterMark(), WAD);
     }
 
+    /// @dev Range [-600, 600] is roughly prices 0.942 to 1.062. Above it the position is all token1, so its
+    /// value can't depend on the price; below it the position is all token0, so value scales with price.
+    function test_close_valuesPositionsOutsideTheirRange() public {
+        _funded();
+        uint256 snap = vm.snapshotState();
+        uint256[4] memory nav;
+        int256[4] memory prices = [int256(1.08e8), 1.12e8, 0.92e8, 0.88e8];
+        for (uint256 i; i < 4; ++i) {
+            vm.revertToState(snap);
+            _nextEpoch(prices[i]);
+            nav[i] = _close().navPerShare;
+        }
+        assertApproxEqRel(nav[0], nav[1], 1e6, "above range: all token1"); // idle dust only
+        assertApproxEqRel(nav[2] * 88, nav[3] * 92, 1e6, "below range: all token0");
+    }
+
     function test_close_feeOnlyAboveHighWaterMark() public {
         _funded();
         _churn(5);
