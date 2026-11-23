@@ -1,11 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { VAULTS, EXPLORER } from "@/lib/chain";
 import { bps, minutes, shares, short, usd, vsHold } from "@/lib/format";
 import { readDetail, type Mandate, type VaultDetail } from "@/lib/read";
+import { Act } from "./Act";
 import { HeroArt } from "./Art";
+import { Console } from "./Console";
 import { LineChart } from "./LineChart";
 import { Answer, Stat, status, StatusChip } from "./ui";
 
@@ -29,11 +31,15 @@ export function VaultView({ address }: { address: `0x${string}` }) {
   const [error, setError] = useState<string | null>(null);
   const [now, setNow] = useState(() => Math.floor(Date.now() / 1000));
 
+  const load = useCallback(
+    () => readDetail(address).then(setD).catch((e) => setError(String(e?.shortMessage ?? e))),
+    [address],
+  );
   useEffect(() => {
-    readDetail(address).then(setD).catch((e) => setError(String(e?.shortMessage ?? e)));
+    load();
     const t = setInterval(() => setNow(Math.floor(Date.now() / 1000)), 1000);
     return () => clearInterval(t);
-  }, [address]);
+  }, [load]);
 
   const breach = d ? d.records.findIndex((r) => r.breached) : -1;
   const bandOk = d !== null && d.oracleUsd !== null && Math.abs(d.poolUsd / d.oracleUsd - 1) * 10_000 <= d.mandate.oracleBandBps;
@@ -128,6 +134,26 @@ export function VaultView({ address }: { address: `0x${string}` }) {
             </p>
           </section>
 
+          <section className="section" id="act">
+            <div className="section-head">
+              <h2 className="display">Deposit, or take your share back</h2>
+              <p className="lede">Test tokens are free. Deposits need a fresh oracle and the pool near it; withdrawals never wait for anything.</p>
+            </div>
+            <Act
+              vault={address}
+              d={d}
+              canDeposit={!d.safeMode && d.oracleUsd !== null && bandOk}
+              why={
+                d.safeMode
+                  ? "This vault has stopped, so it takes no new deposits. Withdrawals still work."
+                  : d.oracleUsd === null
+                    ? "Deposits are paused: the price feed is stale. Withdrawals still work."
+                    : "Deposits are paused: the pool price drifted outside the band around the oracle. Anyone can move it back in the curator console below. Withdrawals still work."
+              }
+              onDone={load}
+            />
+          </section>
+
           <section className="section">
             <div className="section-head">
               <h2 className="display">One share, read as one line</h2>
@@ -216,6 +242,14 @@ export function VaultView({ address }: { address: `0x${string}` }) {
                 ))}
               </tbody>
             </table>
+          </section>
+
+          <section className="section" id="console">
+            <div className="section-head">
+              <h2 className="display">Curator console</h2>
+              <p className="lede">Try any ranges and watch every rule check live against this mandate. Only the curator can sign the move; anyone can run it or score the epoch.</p>
+            </div>
+            <Console vault={address} d={d} fee={meta.fee} tickSpacing={meta.tickSpacing} bandOk={bandOk} onDone={load} />
           </section>
 
           {d.records.length > 0 && (
