@@ -14,6 +14,8 @@ library MandateLib {
     uint16 internal constant MAX_PERF_FEE_BPS = 2_000;
     /// @dev Hard cap on ranges, bounds the gas of turnover and NAV loops.
     uint8 internal constant MAX_RANGES_CAP = 10;
+    /// @dev Widest allowed oracle band (5%). A wider band would let a curator sandwich their own rebalance.
+    uint16 internal constant MAX_BAND_BPS = 500;
 
     /// @notice Sanity-check a mandate when a pool is registered (and later, when it is amended).
     function validateMandate(Mandate memory m) internal pure {
@@ -22,7 +24,7 @@ library MandateLib {
         if (m.maxTurnoverBpsPerEpoch < BPS / 2) _violation("maxTurnoverBpsPerEpoch");
         if (m.minWidthTicks == 0) _violation("minWidthTicks");
         if (m.maxRanges == 0 || m.maxRanges > MAX_RANGES_CAP) _violation("maxRanges");
-        if (m.oracleBandBps == 0 || m.oracleBandBps >= BPS) _violation("oracleBandBps");
+        if (m.oracleBandBps == 0 || m.oracleBandBps > MAX_BAND_BPS) _violation("oracleBandBps");
         // cooldown = 0 is a valid choice (no wait between rebalances).
         if (m.maxDrawdownBps == 0 || m.maxDrawdownBps >= BPS) _violation("maxDrawdownBps");
         if (m.perfFeeBps > MAX_PERF_FEE_BPS) _violation("perfFeeBps");

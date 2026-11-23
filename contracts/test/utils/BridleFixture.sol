@@ -24,6 +24,8 @@ abstract contract BridleFixture is Test, Deployers {
     BridleVault vault;
     MockAggregator oracle;
     uint256 constant MIN_BOND = 1e18;
+    uint256 constant BASE_CAP = 1e30; // effectively uncapped; capacity has its own tests
+    uint256 constant MAX_MULT = 4;
     uint256 curatorPk = 0xC0FFEE;
     address curator = vm.addr(curatorPk);
 
@@ -39,7 +41,9 @@ abstract contract BridleFixture is Test, Deployers {
         // 8-decimal feed at 1.0 and two 18-decimal tokens: oracle sqrtPrice == SQRT_PRICE_1_1
         oracle = new MockAggregator(8, 1e8);
         key = PoolKey(currency0, currency1, 3000, 60, IHooks(hookAddr));
-        vault = new BridleVault(hook, key, feedConfig(), curator, testMandate(), MIN_BOND, "Bridle Steady", "bSTEADY");
+        vault = new BridleVault(
+            hook, key, feedConfig(), curator, testMandate(), MIN_BOND, BASE_CAP, MAX_MULT, "Bridle Steady", "bSTEADY"
+        );
         manager.initialize(key, SQRT_PRICE_1_1);
     }
 
