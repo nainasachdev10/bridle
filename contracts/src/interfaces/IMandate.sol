@@ -39,6 +39,20 @@ struct FeedConfig {
     bool baseIsToken0; // feed quotes token0 in token1 (e.g. ETH/USD for WETH/USDC with WETH as token0)
 }
 
+/// @notice One closed epoch of a vault (its curator's track record under this mandate). Per-share values are
+/// in token1 raw units * 1e18 at the oracle price; ratio, index and hwm are 1e18 = 1.0.
+struct EpochRecord {
+    uint64 epoch; // first epoch covered (an epoch nobody closed is folded into the next close)
+    uint64 closedAt;
+    uint256 navPerShare; // what a share holds at close
+    uint256 holdPerShare; // what a share's start-of-epoch tokens would be worth if simply held
+    uint256 ratio; // navPerShare / holdPerShare
+    uint256 index; // product of all ratios
+    uint256 highWaterMark;
+    uint256 feeShares; // minted to the curator's bond at this close
+    uint32 turnoverBps; // rebalance turnover recorded in this epoch
+}
+
 interface IMandate {
     error MandateViolation(bytes32 term);
     error IntentExpired();
