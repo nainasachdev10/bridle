@@ -15,12 +15,10 @@ export function LineChart({
   series,
   empty,
   knot,
-  xLabel = "Epoch",
 }: {
   series: Series[];
   empty: string;
   knot?: { series: number; index: number };
-  xLabel?: string;
 }) {
   const n = Math.max(0, ...series.map((s) => s.values.length));
   const all = series.flatMap((s) => s.values);
@@ -47,7 +45,7 @@ export function LineChart({
           <line x1={L} x2={W - R} y1={y(1)} y2={y(1)} className="base" />
           {xs.map((i) => (
             <text key={i} x={x(i)} y={H - 12} textAnchor="middle" className="tick">
-              {i === 0 ? "START" : `${xLabel.toUpperCase()} ${i}`}
+              {i === 0 ? "START" : `EPOCH ${i}`}
             </text>
           ))}
           {n > 1 &&

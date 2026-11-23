@@ -91,6 +91,7 @@ export type VaultDetail = VaultSummary & {
 };
 
 /** A vault's closed epochs, oldest first (read one by one: there is no unbounded getter). */
+// shortcut: reads every record on each load; cap to the last N or index events if counts reach the thousands
 export async function readRecords(address: `0x${string}`, count: number): Promise<EpochRecord[]> {
   if (count === 0) return [];
   const records = await client.multicall({

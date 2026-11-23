@@ -77,9 +77,11 @@ export function VaultView({ address }: { address: `0x${string}` }) {
           {d.pending && (
             <div className="notice">
               <strong>New rules proposed.</strong>{" "}
-              {now < d.applyAfter
-                ? `They can apply in ${minutes(d.applyAfter - now)}. If you disagree, withdraw before then: withdrawals never need permission.`
-                : "Their notice period is over; anyone can apply them now."}
+              {d.safeMode
+                ? "This vault has stopped, so these rules will never apply."
+                : now < d.applyAfter
+                  ? `They can apply in ${minutes(d.applyAfter - now)}. If you disagree, withdraw before then: withdrawals never need permission.`
+                  : "Their notice period is over; anyone can apply them now."}
               <ul>
                 {changed.map((t) => (
                   <li key={t.key}>

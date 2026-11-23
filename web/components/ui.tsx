@@ -8,7 +8,7 @@ export function status(v: VaultSummary): Status {
     return { cls: "chip-safe", text: "Safe mode", meaning: "Curator stopped. All capital is idle; withdraw any time." };
   }
   if (!v.isActive) {
-    return { cls: "chip-paused", text: "Not bonded", meaning: "Curator hasn't locked a bond yet, so they can't move funds." };
+    return { cls: "chip-paused", text: "Not bonded", meaning: "Curator's bond is below the minimum, so they can't move funds." };
   }
   return { cls: "chip-live", text: "Active", meaning: "Curator is bonded and managing liquidity under the mandate." };
 }
