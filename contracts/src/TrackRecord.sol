@@ -21,6 +21,8 @@ abstract contract TrackRecord {
         uint64 indexed epoch, uint256 navPerShare, uint256 holdPerShare, uint256 ratio, uint256 index, uint256 hwm
     );
     event FeeMinted(address indexed curator, uint256 shares, uint256 index, uint256 hwm);
+    event Breach(address indexed curator, uint256 index, uint256 peakIndex, uint256 bondBurned);
+    event SafeMode(bytes32 reason);
 
     function recordCount() external view returns (uint256) {
         return _records.length;

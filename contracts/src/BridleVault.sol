@@ -12,6 +12,7 @@ import {Currency} from "@uniswap/v4-core/src/types/Currency.sol";
 import {TickMath} from "@uniswap/v4-core/src/libraries/TickMath.sol";
 import {SqrtPriceMath} from "@uniswap/v4-core/src/libraries/SqrtPriceMath.sol";
 import {EpochRecord, FeedConfig, Mandate} from "./interfaces/IMandate.sol";
+import {MandateLib} from "./libraries/MandateLib.sol";
 import {BridleHook} from "./BridleHook.sol";
 import {TrackRecord} from "./TrackRecord.sol";
 
@@ -43,6 +44,8 @@ contract BridleVault is ERC20, ReentrancyGuardTransient, TrackRecord {
     uint256 public holdSupply;
     /// @notice Last close's fee shares, held here as the curator's bond until the next close.
     uint256 public bondShares;
+    /// @notice Epoch of the first deposit: the idle-epoch clock starts here if the curator never rebalances.
+    uint64 public firstDepositEpoch;
 
     event Deposit(address indexed sender, address indexed receiver, uint256 shares, uint256 amount0, uint256 amount1);
     event Withdraw(address indexed owner, address indexed receiver, uint256 shares, uint256 amount0, uint256 amount1);
@@ -53,6 +56,7 @@ contract BridleVault is ERC20, ReentrancyGuardTransient, TrackRecord {
     error Slippage();
     error NothingToClose();
     error EpochNotOver();
+    error SafeModeOn();
 
     constructor(
         BridleHook _hook,
@@ -80,6 +84,7 @@ contract BridleVault is ERC20, ReentrancyGuardTransient, TrackRecord {
         nonReentrant
         returns (uint256 shares, uint256 amount0, uint256 amount1)
     {
+        if (hook.safeMode(poolId)) revert SafeModeOn();
         uint256 supply = totalSupply();
         token0.safeTransferFrom(msg.sender, address(hook), amount0Max);
         token1.safeTransferFrom(msg.sender, address(hook), amount1Max);
@@ -94,7 +99,10 @@ contract BridleVault is ERC20, ReentrancyGuardTransient, TrackRecord {
         if (shares < minShares) revert Slippage();
         _mint(receiver, shares);
         // first deposit: everything is idle, so the start snapshot is exactly what was paid in
-        if (supply == 0) _snapshot(amount0, amount1, hook.epochOf(poolId));
+        if (supply == 0) {
+            firstDepositEpoch = hook.epochOf(poolId);
+            _snapshot(amount0, amount1, firstDepositEpoch);
+        }
         emit Deposit(msg.sender, receiver, shares, amount0, amount1);
     }
 
@@ -131,12 +139,17 @@ contract BridleVault is ERC20, ReentrancyGuardTransient, TrackRecord {
         r.index = Math.mulDiv(index, r.ratio, WAD);
 
         BridleHook.PoolConfig memory c = hook.poolConfig(poolId);
-        // the bond survived an epoch: hand it to the curator (2c burns it instead on a breach)
-        if (bondShares > 0) {
-            _transfer(address(this), c.curator, bondShares);
+        bool safe = hook.safeMode(poolId);
+        r.breached = !safe && MandateLib.isBreached(c.mandate, r.index, highWaterMark);
+
+        // the pending bond: burned on a breach (every other holder's share grows), else it survived an epoch
+        uint256 bond = bondShares;
+        if (bond > 0) {
             bondShares = 0;
+            if (r.breached) _burn(address(this), bond);
+            else _transfer(address(this), c.curator, bond);
         }
-        if (r.index > highWaterMark) {
+        if (!safe && r.index > highWaterMark) {
             // f = perfFee * (index - hwm) / index; minting supply * f / (1 - f) gives the curator exactly f.
             // shortcut: no per-depositor equalization; whoever holds at close shares the fee (a deposit just
             // before close pays a little of it, a withdrawal just before skips it). Dust at 5-min epochs.
@@ -151,11 +164,23 @@ contract BridleVault is ERC20, ReentrancyGuardTransient, TrackRecord {
         }
         index = r.index;
         r.highWaterMark = highWaterMark;
-        (,,,, uint64 turnoverEpoch, uint32 turnoverBps) = hook.poolState(poolId);
+        (,,, uint64 lastRebalanceAt, uint64 turnoverEpoch, uint32 turnoverBps) = hook.poolState(poolId);
         if (turnoverEpoch >= currentEpoch) r.turnoverBps = turnoverBps; // latest rebalance epoch in the window
         _records.push(r);
         emit EpochClosed(r.epoch, r.navPerShare, r.holdPerShare, r.ratio, r.index, r.highWaterMark);
 
+        // liveness: no rebalance for more than maxIdleEpochs and no live queued intent -> the curator is gone.
+        // A live intent counts as present: execution can be blocked for a while (pool out of band, stale oracle).
+        uint64 activeEpoch =
+            lastRebalanceAt == 0 ? firstDepositEpoch : uint64(Math.max(turnoverEpoch, firstDepositEpoch));
+        bool idle =
+            nowEpoch - activeEpoch > c.mandate.maxIdleEpochs && hook.queuedIntent(poolId).deadline < block.timestamp;
+        if (r.breached) emit Breach(c.curator, r.index, highWaterMark, bond);
+        if (!safe && (r.breached || idle)) {
+            hook.enterSafeMode(poolId);
+            emit SafeMode(r.breached ? bytes32("breach") : bytes32("idle"));
+            (amount0, amount1,) = _holdings(); // positions are now idle: snapshot what is actually held
+        }
         _snapshot(amount0, amount1, nowEpoch);
     }
 
