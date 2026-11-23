@@ -11,39 +11,21 @@ Source of truth for status. Read at the start of every session. Workflow: see CL
 | 2d Curator-posted bond (added after an outside review) | Nov 23 | feat/phase-2d-bond | done, merged (PR #5) |
 | 3a Amendments + capacity | Nov 29 | feat/phase-3a-amendments | done, merged (PR #6) |
 | 3b Invariant suite + MandateLib fuzz | Nov 30 | feat/phase-3b-invariants | done, merged (PR #7) |
-| 3c Unichain Sepolia deploy script + fork test | Dec 1 | feat/phase-3c-deploy | in progress (started Nov 23) |
+| 3c Unichain Sepolia deploy script + fork test | Dec 1 | feat/phase-3c-deploy | done, merged (PR #8) |
 | 3d Reactive watcher (cut order #4; needs Lasna REACT) | Dec 1 | feat/phase-3d-reactive | not started |
-| 4a Web (leaderboard, vault page, curator console) | Dec 2 | feat/phase-4a-web | not started |
-| 4b Agent, demo script, README | Dec 3 | feat/phase-4b-ship | not started |
+| 4a Web, read-only: leaderboard + vault page | Dec 2 | feat/phase-4a-web | done (Nov 23), awaiting review + merge |
+| 4b Web, wallet: faucet, deposit/withdraw, curator console + live pre-check | Dec 2 | feat/phase-4b-wallet | not started |
+| 4c Agent, demo script, README | Dec 3 | feat/phase-4c-ship | not started |
 
-## Current milestone: 3c Unichain Sepolia deploy script + fork test
-Acceptance (CLAUDE.md phase 3 + security rules): deploy to Unichain Sepolia with the real Chainlink feed; validate hook address bits with Hooks.validateHookPermissions in the deploy script; fork test. Outside review: two kinds of vault (real feed; labelled demo feed for the breach scene), maxStaleness from the real feed's heartbeat.
+## Current milestone: 4a (done) Web, read-only (leaderboard + vault page)
+Acceptance (CLAUDE.md phase 4, split): web (leaderboard, vault page with NAV vs hold chart + amendment banner). Reads the live Unichain Sepolia contracts; no wallet needed. The index is labelled "gross of fees" (outside review).
 
-Verified on chain 1301 (Nov 23):
-- PoolManager `0x00b036b58a818b1bc34d502d3fe730db729e62ac` (developers.uniswap.org v4 deployments; 24,009 B of code)
-- PoolSwapTest `0x9140a78c1a137c7ff1c151ec8231272af78a99a4`, CREATE2 factory `0x4e59b44847b379578588920cA78FbF26c0B4956C` present
-- Chainlink ETH/USD `0xd9c93081210dFc33326B2af4C2c11848095E6a9a` (reference-data-directory feeds-ethereum-testnet-sepolia-unichain-1.json): 8 decimals, heartbeat 86,400 s, deviation 0.5%; description() = "ETH / USD", answer 1724.14, updated 105 min before the check
+- [x] web/ Next.js (static export) + viem only; versions pinned >= 2 weeks old (next 15.5.28, react 19.1.10, viem 2.57.17, typescript 5.9.3); 41 packages
+- [x] Leaderboard: the three vaults ranked by index; curator, index (gross of fees), hwm, epochs, good epochs, status (active / not bonded / safe mode)
+- [x] Vault page: NAV per share vs hold (SVG chart, hold line = NAV / index), mandate terms, amendment banner with countdown and changed terms, safe-mode/breach banner, live positions, bond, capacity, oracle vs pool price and band status, track-record table
+- [x] `npm run build` + `tsc --noEmit` pass; pages loaded in a browser against the live contracts
 
-- [x] script/Deploy.s.sol: test tokens (mintable tWETH 18 / tUSDC 6), hook at a mined CREATE2 address (standard factory, so the address is the same in a broadcast and a fork) + Hooks.validateHookPermissions, owner-only DemoFeed, three vaults (Steady fee 3000/60 + Agent 500/10 on the real feed, Reckless 10000/200 on the demo feed with a 5% drawdown line), pools initialized at the oracle price
-- [x] maxStaleness 25 h for the real feed (24 h heartbeat + margin); demo feed 1 h
-- [x] Fork test (test/fork, runs only with UNICHAIN_SEPOLIA_RPC set): deploy against the real PoolManager + feed; hook price == Chainlink within 0.01%; deposit, bond, 3-range rebalance inside a real swap through Uniswap's PoolSwapTest, epoch close
-- [x] Broadcast (Nov 23, block 68579557, by the user via `script/deploy-unichain-sepolia.sh`, keystore account): 10 transactions, all status success, ~0.0000092 ETH. Record: `broadcast/Deploy.s.sol/1301/run-latest.json`
-- [ ] Source verification on Blockscout: 1 of 7 verified at deploy time, the rest hit Blockscout's rate limit. Rerun `script/verify-unichain-sepolia.sh` (verification only, no transactions)
-
-Deployed on Unichain Sepolia (1301), checked on chain after the broadcast (code size, curator, symbol, pool initialized):
-
-| Contract | Address |
-|---|---|
-| BridleHook (24,087 B, same as the local build) | 0x5a2017AA16Cde9e88f5e8Ed0928FFBcff1eA6880 |
-| tWETH (test token, open faucet) | 0x01163d86A5A3a818879f116e3cd66d5aff8aC855 |
-| tUSDC (test token, open faucet) | 0x518a298ffACd7703c45C397823DDfD4C158ABBEF |
-| DemoFeed (owner = deployer) | 0x3353E250A2aF035e4AfC86615186d6CDf9f16E9e |
-| Steady vault, bSTEADY, real Chainlink feed, curator 0x7562186636EB363D639e1328049F994BaF7aC55c | 0x38dE68042435098bE0c8296a2F6FC0b3c22F7372 |
-| Agent vault, bAGENT, real Chainlink feed, curator 0xE970f10dc6F08fb66ef2a2A601eA7B652F4257D3 | 0x5eFD71dB1A7dA5e3314Be8112174a76c26b20495 |
-| Reckless vault, bRECK, DEMO feed, curator 0x4eC233D41dD12B74076FeCFeE8a761DC2D20658C | 0xd0F560B18D535acc5C3F1ED6620de35eE0D8760F |
-| Deployer | 0x52825Ac547d3Ed00C33488E571074e1B55577a97 |
-
-Result: `forge test` 220 passed, 1 skipped (fork test without the RPC). With `UNICHAIN_SEPOLIA_RPC=https://sepolia.unichain.org`: 3/3 fork tests pass. Cold-storage gas on the fork: swap + first 3-range deployment in beforeSwap 576,240; closeEpoch with 3 positions 427,293. Simulated deploy (no broadcast): 24.3M gas, ~0.000024 ETH; hook address 0x5a2017AA16Cde9e88f5e8Ed0928FFBcff1eA6880 (fixed by CREATE2 mining).
+Result: in the browser (localhost, live Unichain Sepolia): leaderboard shows the three curators from the deployment, index 1.0000, 0 epochs, "Not bonded" (true: no curator has bonded yet). Steady page: oracle $1,724.14 = the Chainlink answer, pool at the same price, "within the 1% band", mandate terms match Deploy.s.sol. Reckless page: DemoFeed 82 min old -> "Oracle stale", 5% breach line. No console errors. Not yet seen with live data: the chart, amendment banner, positions and track-record table (nothing has happened on-chain yet; 4b's wallet actions and the demo create that).
 
 ## Decisions
 - Phase 1: solc pinned to 0.8.26 because v4-core PoolManager is `pragma =0.8.26`.
@@ -102,6 +84,9 @@ Result: `forge test` 220 passed, 1 skipped (fork test without the RPC). With `UN
 - 3c: the Reckless (demo) vault uses a 5% drawdown line so the breach scene needs only a modest price move.
 - 3c review: DemoFeed's owner-only `set` has a unit test (DemoFeed.t.sol); a mutation that drops the check fails it.
 
+- 4a: the web app is read-only and needs no wallet: it reads with viem through Multicall3 on the public RPC; records are read one by one with record(i). The chart's hold line is NAV per share / index (the index compounds NAV/hold each epoch, so dividing it out leaves the hold path). No chart or CSS library.
+- 4a: the old "4b Agent, demo, README" is now 4c; 4b is the wallet half of the web app (faucet, deposit/withdraw, curator console with live pre-check).
+
 ## Known issues
 - SIZE BUDGET: BridleHook has 1.4 KB left. 2b must put epoch close / NAV / index / fee math in BridleVault + TrackRecord (as the CLAUDE.md layout already says) and keep only small hooks (views, safe-mode flag) in BridleHook. Making MandateLib an external library saves only ~0.4 KB.
 - Rebalance sandwich: someone can push the pool price inside the band, then trigger execution; the loss is bounded by oracleBandBps. Inherent to the design; the band is the mitigation.
@@ -120,4 +105,4 @@ Result: `forge test` 220 passed, 1 skipped (fork test without the RPC). With `UN
 - Fixed in 2d: anyone could deploy a vault naming any curator. Now such a vault takes no intents until that curator posts a bond, and it costs the curator nothing.
 
 ## Next
-Milestone 3c, Reactive watcher + Unichain Sepolia deploy + fork test (branch `feat/phase-3c-deploy`): Deploy.s.sol (hook mining + Hooks.validateHookPermissions, vaults, pool init); two vaults (real Chainlink ETH/USD feed; labelled demo vault on MockAggregator); maxStaleness from the real feed's heartbeat; fork test against the deployed contracts (cold-storage gas for beforeSwap execution and closeEpoch); Reactive watcher that calls closeEpoch / executeQueued, with callback auth tests. Reactive is 4th in the cut order (keep permissionless calls).
+Milestone 4b, web wallet actions (branch `feat/phase-4b-wallet`): connect a wallet (wagmi, injected) on Unichain Sepolia; tWETH/tUSDC faucet; deposit (with amount maxes + minShares) and withdraw (amount mins) on the vault page; curator console: pick ranges, live pre-check against the mandate (TS port of checkRanges + turnover vs current positions + band/staleness/cooldown), sign the EIP-712 intent and queue it; lockBond. Then run the first real activity on testnet so the chart, positions and track record have data.
