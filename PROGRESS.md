@@ -27,6 +27,27 @@ Acceptance (CLAUDE.md phase 4, split): web (leaderboard, vault page with NAV vs 
 
 Result: in the browser (localhost, live Unichain Sepolia): leaderboard shows the three curators from the deployment, index 1.0000, 0 epochs, "Not bonded" (true: no curator has bonded yet). Steady page: oracle $1,724.14 = the Chainlink answer, pool at the same price, "within the 1% band", mandate terms match Deploy.s.sol. Reckless page: DemoFeed 82 min old -> "Oracle stale", 5% breach line. No console errors. Not yet seen with live data: the chart, amendment banner, positions and track-record table (nothing has happened on-chain yet; 4b's wallet actions and the demo create that).
 
+## Deployment (Unichain Sepolia, chain 1301)
+Kept across milestones. Deployed Nov 23 by the user (`contracts/script/deploy-unichain-sepolia.sh`, keystore account), block 68579557; record in `contracts/broadcast/Deploy.s.sol/1301/run-latest.json`. Source verification: `contracts/script/verify-unichain-sepolia.sh` (BridleHook, tWETH, tUSDC, DemoFeed verified on Blockscout; the three vaults rate-limited, retry pending).
+
+Deployed on Unichain Sepolia (1301), checked on chain after the broadcast (code size, curator, symbol, pool initialized):
+
+| Contract | Address |
+|---|---|
+| BridleHook (24,087 B, same as the local build) | 0x5a2017AA16Cde9e88f5e8Ed0928FFBcff1eA6880 |
+| tWETH (test token, open faucet) | 0x01163d86A5A3a818879f116e3cd66d5aff8aC855 |
+| tUSDC (test token, open faucet) | 0x518a298ffACd7703c45C397823DDfD4C158ABBEF |
+| DemoFeed (owner = deployer) | 0x3353E250A2aF035e4AfC86615186d6CDf9f16E9e |
+| Steady vault, bSTEADY, real Chainlink feed, curator 0x7562186636EB363D639e1328049F994BaF7aC55c | 0x38dE68042435098bE0c8296a2F6FC0b3c22F7372 |
+| Agent vault, bAGENT, real Chainlink feed, curator 0xE970f10dc6F08fb66ef2a2A601eA7B652F4257D3 | 0x5eFD71dB1A7dA5e3314Be8112174a76c26b20495 |
+| Reckless vault, bRECK, DEMO feed, curator 0x4eC233D41dD12B74076FeCFeE8a761DC2D20658C | 0xd0F560B18D535acc5C3F1ED6620de35eE0D8760F |
+| Deployer | 0x52825Ac547d3Ed00C33488E571074e1B55577a97 |
+
+Verified on chain 1301 (Nov 23):
+- PoolManager `0x00b036b58a818b1bc34d502d3fe730db729e62ac` (developers.uniswap.org v4 deployments; 24,009 B of code)
+- PoolSwapTest `0x9140a78c1a137c7ff1c151ec8231272af78a99a4`, CREATE2 factory `0x4e59b44847b379578588920cA78FbF26c0B4956C` present
+- Chainlink ETH/USD `0xd9c93081210dFc33326B2af4C2c11848095E6a9a` (reference-data-directory feeds-ethereum-testnet-sepolia-unichain-1.json): 8 decimals, heartbeat 86,400 s, deviation 0.5%; description() = "ETH / USD", answer 1724.14, updated 105 min before the check
+
 ## Decisions
 - Phase 1: solc pinned to 0.8.26 because v4-core PoolManager is `pragma =0.8.26`.
 - Phase 1: `@openzeppelin/contracts` maps to uniswap-hooks' own OZ copy (newer than v4-core's; has ReentrancyGuardTransient). The template maps it to v4-core's copy.
