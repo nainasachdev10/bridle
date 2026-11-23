@@ -198,6 +198,6 @@ contract BridleVaultTest is BridleFixture {
     function test_revert_nativeCurrency() public {
         PoolKey memory k = PoolKey(Currency.wrap(address(0)), currency1, 500, 10, IHooks(address(hook)));
         vm.expectRevert(BridleVault.NativeCurrencyUnsupported.selector);
-        new BridleVault(hook, k, feedConfig(), curator, testMandate(), "x", "x");
+        new BridleVault(hook, k, feedConfig(), curator, testMandate(), MIN_BOND, "x", "x");
     }
 }

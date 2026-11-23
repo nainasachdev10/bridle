@@ -2,6 +2,8 @@
 pragma solidity ^0.8.26;
 
 import {Test} from "forge-std/Test.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {Currency} from "@uniswap/v4-core/src/types/Currency.sol";
 import {Deployers} from "@uniswap/v4-core/test/utils/Deployers.sol";
 import {IHooks} from "@uniswap/v4-core/src/interfaces/IHooks.sol";
 import {Hooks} from "@uniswap/v4-core/src/libraries/Hooks.sol";
@@ -21,6 +23,7 @@ abstract contract BridleFixture is Test, Deployers {
     BridleHook hook;
     BridleVault vault;
     MockAggregator oracle;
+    uint256 constant MIN_BOND = 1e18;
     uint256 curatorPk = 0xC0FFEE;
     address curator = vm.addr(curatorPk);
 
@@ -36,8 +39,22 @@ abstract contract BridleFixture is Test, Deployers {
         // 8-decimal feed at 1.0 and two 18-decimal tokens: oracle sqrtPrice == SQRT_PRICE_1_1
         oracle = new MockAggregator(8, 1e8);
         key = PoolKey(currency0, currency1, 3000, 60, IHooks(hookAddr));
-        vault = new BridleVault(hook, key, feedConfig(), curator, testMandate(), "Bridle Steady", "bSTEADY");
+        vault = new BridleVault(hook, key, feedConfig(), curator, testMandate(), MIN_BOND, "Bridle Steady", "bSTEADY");
         manager.initialize(key, SQRT_PRICE_1_1);
+    }
+
+    /// @dev The curator deposits like anyone and locks MIN_BOND of their shares, so the vault takes intents.
+    function bondCurator() internal {
+        IERC20 a = IERC20(Currency.unwrap(currency0));
+        IERC20 b = IERC20(Currency.unwrap(currency1));
+        a.transfer(curator, 2e18);
+        b.transfer(curator, 2e18);
+        vm.startPrank(curator);
+        a.approve(address(vault), 2e18);
+        b.approve(address(vault), 2e18);
+        vault.deposit(2e18, 2e18, 0, curator);
+        vault.lockBond(MIN_BOND);
+        vm.stopPrank();
     }
 
     function feedConfig() internal view returns (FeedConfig memory) {
