@@ -79,7 +79,8 @@ contract BridleHook is BaseHook, IntentVerifier, IUnlockCallback {
     enum Action {
         Deposit,
         Withdraw,
-        Rebalance
+        Rebalance,
+        CollectFees
     }
 
     mapping(PoolId => PoolConfig) internal _pools;
@@ -166,6 +167,11 @@ contract BridleHook is BaseHook, IntentVerifier, IUnlockCallback {
 
     function queuedIntent(PoolId id) external view returns (QueuedIntent memory) {
         return _queued[id];
+    }
+
+    /// @notice Epoch number: epoch 0 starts at pool initialization. Used by the turnover cap and epoch close.
+    function epochOf(PoolId id) public view returns (uint64) {
+        return uint64((block.timestamp - poolState[id].startTime) / _pools[id].mandate.epochLength);
     }
 
     /// @notice Chainlink price as a pool sqrtPriceX96; reverts OracleStale. External so beforeSwap can try it.
@@ -289,10 +295,20 @@ contract BridleHook is BaseHook, IntentVerifier, IUnlockCallback {
         );
     }
 
+    /// @notice Vault-only, for epoch close: pokes every position so accrued fees land in idle.
+    function collectFees(PoolId id) external {
+        if (msg.sender != _pools[id].vault) revert NotVault();
+        poolManager.unlock(abi.encode(Action.CollectFees, id, bytes("")));
+    }
+
     function unlockCallback(bytes calldata data) external onlyPoolManager returns (bytes memory) {
         (Action action, PoolId id, bytes memory args) = abi.decode(data, (Action, PoolId, bytes));
         if (action == Action.Rebalance) {
             _rebalance(id);
+            return "";
+        }
+        if (action == Action.CollectFees) {
+            _collectFees(id);
             return "";
         }
         if (action == Action.Deposit) {
@@ -452,7 +468,7 @@ contract BridleHook is BaseHook, IntentVerifier, IUnlockCallback {
             old[i] = Range(ps[i].tickLower, ps[i].tickUpper, ps[i].weightBps);
         }
         turnover = MandateLib.turnoverBps(old, ranges);
-        uint64 epoch = uint64((block.timestamp - st.startTime) / m.epochLength);
+        uint64 epoch = epochOf(id);
         uint256 soFar = epoch == st.turnoverEpoch ? st.epochTurnoverBps : 0;
         epochTurnover = MandateLib.checkTurnover(m, soFar, turnover);
         st.turnoverEpoch = epoch;

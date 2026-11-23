@@ -5,8 +5,8 @@ Source of truth for status. Read at the start of every session. Workflow: see CL
 | Milestone | Dates | Branch | Status |
 |---|---|---|---|
 | 1 Skeleton | Nov 22-23 | feat/phase-1-skeleton | done, merged (PR #1) |
-| 2a Execution path + oracle guard | Nov 24-25 | feat/phase-2a-execution | done (Nov 22), awaiting review + merge |
-| 2b Epochs, NAV, index, HWM fee | Nov 26-27 | feat/phase-2b-epochs | not started |
+| 2a Execution path + oracle guard | Nov 24-25 | feat/phase-2a-execution | done, merged (PR #2) |
+| 2b Epochs, NAV, index, HWM fee | Nov 26-27 | feat/phase-2b-epochs | done (Nov 23), awaiting review + merge |
 | 2c Bond, breach, safe mode, liveness | Nov 28 | feat/phase-2c-breach | not started |
 | 3a Amendments + capacity | Nov 29 | feat/phase-3a-amendments | not started |
 | 3b Invariant suite + MandateLib fuzz | Nov 30 | feat/phase-3b-invariants | not started |
@@ -14,21 +14,20 @@ Source of truth for status. Read at the start of every session. Workflow: see CL
 | 4a Web (leaderboard, vault page, curator console) | Dec 2 | feat/phase-4a-web | not started |
 | 4b Agent, demo script, README | Dec 3 | feat/phase-4b-ship | not started |
 
-## Current milestone: 2a Execution path + oracle guard
-Acceptance (CLAUDE.md phase 2, part a): queueIntent; executeQueued via unlock; beforeSwap path; OracleGuard with a mock aggregator. Unit tests for every revert and skip path, including low-gas swaps leaving the intent queued and the hook's deltas netting to zero. Security: never slot0 alone (band + staleness on rebalances AND deposits); withdrawals in kind, pro rata on every position and idle, no price, work with oracle stale.
+## Current milestone: 2b (done) Epochs, NAV, index, HWM fee
+Acceptance (CLAUDE.md phase 2, part b): epoch close, NAV, index, HWM fee. NAV in token1 at the ORACLE price (positions via LiquidityAmounts at the oracle sqrtPrice + uncollected fees + idle). Per-share hold snapshot at epoch start; ratio = navPerShareEnd / holdValuePerShareEnd; index *= ratio; fee only when index > hwm: f = perfFeeBps * (index - hwm) / index, feeShares = supply * f / (1 - f), locked as bond for 1 epoch; hwm = index. Events EpochClosed, FeeMinted. Unit tests for every revert path.
 
-- [x] Custody moves to the hook: positions owned by the hook in the PoolManager, idle balances held as ERC-6909 claims, tracked per pool. Vault = share token + entry points.
-- [x] libraries/OracleGuard.sol: staleness, bad answer, Chainlink + token decimals, currency order -> sqrtPriceX96 / tick; band check. Mock aggregator.
-- [x] Deposit: band + staleness (OutOfBand / OracleStale), fees collected first, pro rata on every position and idle, amount maxes + minShares
-- [x] Withdraw: fees collected first, pro rata on every position and idle, no oracle, amount mins
-- [x] beforeInitialize: initial price within band of the oracle
-- [x] queueIntent: NotCurator, signature (phase 1), shape checks against the current oracle tick; replaces an older queued intent
-- [x] executeQueued (permissionless, via unlock): band, staleness, cooldown, ranges vs oracle tick, per-epoch turnover; remove all, add new by weight; settle deltas as ERC-6909
-- [x] beforeSwap: cheap checks -> try this.executeInternal() -> on failure or low gas keep the intent queued, emit IntentSkipped, swap continues
-- [x] Tests for every revert and skip path; deltas net to zero; fees not stolen by a withdrawer
+- [x] Hook: `epochOf(id)` view (one epoch formula, used by the turnover cap and the vault)
+- [x] Hook: vault-only `collectFees(id)` (fees into idle before valuing). NAV valuation itself lives in the vault (size budget)
+- [x] IMandate: `EpochRecord` schema
+- [x] TrackRecord.sol: per-vault epoch ledger (recordCount, record(i); no whole-array getter, it would outgrow RPC gas caps), index + hwm state, EpochClosed / FeeMinted events
+- [x] BridleVault.closeEpoch (permissionless, nonReentrant): NAV, hold value of the start snapshot, ratio, index, fee shares, bond hand-off, next snapshot
+- [x] First deposit sets the first snapshot
+- [x] Fee shares minted to the vault as the curator's bond; released to the curator at the next close (2c burns it on a breach instead)
+- [x] Tests for scoring, fee/hwm, bond, bookkeeping and every revert path
 - [x] forge build + forge test green; hook under 24 KB
 
-Result: `forge test` 144 passed, 0 failed (MandateLib 45, Execution 40, IntentVerifier 19, BridleVault 18, BridleHook 13, OracleGuard 9; deposit fuzz 256 runs). Sizes (via_ir): BridleHook 23,202 B (1,374 B under the 24,576 B limit), BridleVault 3,385 B. Swap + 3->3 range rebalance inside beforeSwap: ~688k gas (warm storage, test).
+Result: `forge test` 161 passed, 0 failed (Execution 40, MandateLib 45, IntentVerifier 19, BridleVault 18, Epochs 17, BridleHook 13, OracleGuard 9). Sizes: BridleHook 23,491 B (1,085 B under the limit), BridleVault 9,484 B. Sanity numbers from the tests: 5 round trips of 10-token swaps at 0.3% on 200 of capital score exactly 1.0015; a +5% oracle move against a +-6% range scores 0.9899 (impermanent loss); a mid-epoch deposit + withdrawals leave the ratio identical to 18 decimals.
 
 ## Decisions
 - Phase 1: solc pinned to 0.8.26 because v4-core PoolManager is `pragma =0.8.26`.
@@ -54,13 +53,25 @@ Result: `forge test` 144 passed, 0 failed (MandateLib 45, Execution 40, IntentVe
 - 2a: oracle answers outside v4's price range, zero/negative answers, and updatedAt == 0 all revert `OracleStale`.
 - 2a: `via_ir = true` (needed for stack depth and size). Builds take ~15 s.
 
+- 2b: NAV = positions' token amounts at the ORACLE sqrtPrice (rounded down) + idle, after collecting fees into idle (so "uncollected fees" are real tokens, no fee-growth math). Valued in token1. All of it is computed in the vault from hook views; the hook only adds `collectFees` and `epochOf`.
+- 2b: scoring per share via a start snapshot (holdAmount0/1 + holdSupply). ratio = (NAV / supply) / (value of the snapshot tokens at the end price / holdSupply). Deposits and withdrawals are pro rata in kind, so they don't move it (tested).
+- 2b: the hold benchmark resets every epoch (it holds the tokens the vault had at the epoch start). A price move then a move back scores below 1.0 both times: that is the real cost of LPing vs holding, and fees must beat it.
+- 2b: an epoch nobody closed folds into the next close (record.epoch = first epoch covered, currentEpoch jumps to now). closeEpoch needs a fresh oracle; withdrawals never do.
+- 2b: hwm doubles as the peak index for 2c's drawdown check (hwm = highest index ever reached, since it moves whenever index passes it).
+- 2b: fee shares are minted to the vault itself as the curator's bond and handed to the curator at the next close; 2c burns them instead on a breach. Fee rounds down (in depositors' favour).
+- 2b: TrackRecord is per vault (inherited by BridleVault), not a shared per-curator registry. Registration is permissionless, so a shared registry would let anyone write fake records under a real curator's name. The leaderboard lists known vaults; each vault has one curator.
+
 ## Known issues
 - SIZE BUDGET: BridleHook has 1.4 KB left. 2b must put epoch close / NAV / index / fee math in BridleVault + TrackRecord (as the CLAUDE.md layout already says) and keep only small hooks (views, safe-mode flag) in BridleHook. Making MandateLib an external library saves only ~0.4 KB.
 - Rebalance sandwich: someone can push the pool price inside the band, then trigger execution; the loss is bounded by oracleBandBps. Inherent to the design; the band is the mitigation.
 - No L2 sequencer-uptime check on the Chainlink feed (check whether Unichain Sepolia has one in 3c).
 - Rebalance gas (~687k for swap + 3->3) is from a warm-storage test; re-measure on the fork test (3c). Demo/web must add SWAP_RESERVE_GAS to swap gas estimates for in-swap execution.
 - No reentrancy test (needs a malicious token). `nonReentrant` is on deposit and withdraw.
-- GitHub repo is private; CLAUDE.md says public.
+- GitHub repo is private; CLAUDE.md says public (user's call: keep private for now).
+- Performance fee has no per-depositor equalization: whoever holds at close shares the fee, so a deposit just before close pays a little of it and a withdrawal just before skips it. Dust at 5-minute epochs; list in README limits (`shortcut:` comment in closeEpoch).
+- SIZE BUDGET: BridleHook has 1,085 B left for 2c (safe-mode flag) and 3a (amendments). Plan: amendments live in the vault and call one small vault-only setter on the hook.
+- closeEpoch is permissionless, so whoever closes first picks the exact oracle reading inside the window after the epoch ends. The 3c Reactive watcher should close promptly.
+- Anyone can deploy a vault naming any curator. 2c's idle-epoch liveness must not harm a curator who never queued an intent for that vault.
 
 ## Next
-Milestone 2b, Epochs, NAV, index, HWM fee (branch `feat/phase-2b-epochs`): closeEpoch (permissionless, epoch numbering as in 2a); NAV in token1 at the ORACLE price (positions via LiquidityAmounts at oracle sqrtPrice + idle; fees are already collected into idle on every action); per-share hold snapshot at epoch start; ratio, index, high-water mark; fee shares minted to the curator; TrackRecord ledger + IMandate record schema; EpochClosed and FeeMinted events. Keep the math in BridleVault/TrackRecord to protect the hook's size budget.
+Milestone 2c, Bond, breach, safe mode, liveness (branch `feat/phase-2c-breach`): breach when index < hwm * (1 - maxDrawdownBps) at closeEpoch -> suspend curator, burn the pending bond (instead of releasing it), safe mode on (no rebalances, queued intent dropped, beforeSwap skips; withdrawals unaffected); Breach and SafeMode events; idle-epoch liveness (maxIdleEpochs without a rebalance -> safe mode or suspension, per CLAUDE.md); invariant 5 test (after a breach each non-curator holder's claim per share >= before the burn).
