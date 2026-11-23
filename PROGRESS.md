@@ -9,23 +9,25 @@ Source of truth for status. Read at the start of every session. Workflow: see CL
 | 2b Epochs, NAV, index, HWM fee | Nov 26-27 | feat/phase-2b-epochs | done, merged (PR #3) |
 | 2c Bond, breach, safe mode, liveness | Nov 28 | feat/phase-2c-breach | done, merged (PR #4) |
 | 2d Curator-posted bond (added after an outside review) | Nov 23 | feat/phase-2d-bond | done, merged (PR #5) |
-| 3a Amendments + capacity | Nov 29 | feat/phase-3a-amendments | done (Nov 23), awaiting review + merge |
-| 3b Invariant suite + MandateLib fuzz | Nov 30 | feat/phase-3b-invariants | not started |
+| 3a Amendments + capacity | Nov 29 | feat/phase-3a-amendments | done, merged (PR #6) |
+| 3b Invariant suite + MandateLib fuzz | Nov 30 | feat/phase-3b-invariants | done (Nov 23), awaiting review + merge |
 | 3c Reactive watcher, Unichain Sepolia deploy, fork test | Dec 1 | feat/phase-3c-deploy | not started |
 | 4a Web (leaderboard, vault page, curator console) | Dec 2 | feat/phase-4a-web | not started |
 | 4b Agent, demo script, README | Dec 3 | feat/phase-4b-ship | not started |
 
-## Current milestone: 3a (done) Amendments + capacity
-Acceptance (CLAUDE.md phase 3): amendments (delay, exit before apply, immutable fields); capacity: cap = baseCap * min(1 + goodEpochs, maxMultiplier), good epoch = ratio >= 1.0, CapacityExceeded. Security: fee cap, safe-mode rules and in-kind withdrawal immutable; no lockups or exit fees. Events AmendmentProposed, AmendmentApplied.
+## Current milestone: 3b (done) Invariant suite + MandateLib fuzz
+Acceptance (CLAUDE.md phase 3 + "Invariants"): Foundry handler; the 5 invariants; MandateLib fuzzed against a simple reference implementation. Invariant tests are on the never-cut list.
 
-- [x] Vault: `proposeAmendment(Mandate)` (curator only, not in safe mode): validateMandate; perfFeeBps and maxDrawdownBps can only go down; epochLength fixed; amendmentDelay can only go up; applies after the CURRENT delay; a new proposal restarts the clock; AmendmentProposed
-- [x] Vault: `applyAmendment()` (permissionless, after the delay, not in safe mode) -> hook `setMandate` (vault-only); AmendmentApplied; `pendingMandate` + `amendmentApplyAfter` public for the web banner
-- [x] Exit before apply: tested (withdraw during the window)
-- [x] Capacity: baseCap + maxMultiplier in the constructor; goodEpochs counted in closeEpoch; deposit reverts CapacityExceeded above the cap (shares)
-- [x] Tests: Amendments.t.sol (21)
-- [x] forge build + forge test green; hook under 24 KB
+- [x] Handler: deposit, withdraw, rebalance (queue + execute), swap (price-limited), closeEpoch, warp, moveOracle (+ arbitrage to the oracle). Amend runs once in setUp (tightens maxDrawdownBps to 2% so breaches happen); bond flows stay in unit tests
+- [x] Inv 1a: claims == idle accounting; recorded liquidity == PoolManager's. Inv 1b: rounding favours the vault (per-share liquidity and idle never drop for those who stay)
+- [x] Inv 2: epoch turnover <= cap; count, width, spacing of live positions
+- [x] Inv 3: everyone can withdraw everything at any point (and the handler's own withdraw never reverts)
+- [x] Inv 4: fee only above the previous hwm; hwm never decreases
+- [x] Inv 5: a breach never lowers any holder's share of the vault
+- [x] MandateLib fuzz vs reference (checkRanges pass/fail, turnover computed as (sumOld + sumNew)/2 - overlap)
+- [x] forge test green
 
-Result: `forge test` 212 passed, 0 failed (MandateLib 45, Execution 40, Amendments 22, IntentVerifier 19, SafeMode 19, BridleVault 18, Epochs 17, BridleHook 13, Bond 10, OracleGuard 9). Sizes: BridleHook 24,087 B (489 B under the limit), BridleVault 16,168 B. Mutation checks: removing the drawdown-only-tighter rule, the delay, or the capacity check each fails its test.
+Result: `forge test` 220 passed, 0 failed (unit 212 + fuzz 2 + invariants 6). Invariants: 64 runs x 64 calls = 4,096 calls each, 0 unexpected reverts; call mix ~530-630 per handler function. Across one full run (probe, not kept): 219 rebalances, 276 epoch closes, 9 breaches, 9 runs continuing in safe mode. Mutation check: rounding withdrawals up passed the first version of the suite; adding inv 1b catches it (fails with idle0/share).
 
 ## Decisions
 - Phase 1: solc pinned to 0.8.26 because v4-core PoolManager is `pragma =0.8.26`.
@@ -75,6 +77,10 @@ Result: `forge test` 212 passed, 0 failed (MandateLib 45, Execution 40, Amendmen
 - 3a: size: `poolConfig()` (returned the whole nested struct) cost ~800 B of ABI-encoding code. Replaced by `curatorOf` and `mandateOf`; the feed is checked through `oracleSqrtPriceX96`.
 - 3a: capacity is in shares (deposit reverts if totalSupply would pass it). An all-idle epoch scores exactly 1.0 and counts as good, so capacity also grows in safe mode; harmless, deposits are blocked there.
 
+- 3b: the handler's moveOracle also arbitrages the pool to the new oracle price. Without it the first run showed 0 successful rebalances: the pool left the 1% band and everything stopped (the same testnet problem noted for the demo).
+- 3b: breaches need a tighter line than the 10% test mandate in a 64-step random walk, so setUp amends maxDrawdownBps to 2% through proposeAmendment/applyAmendment.
+- 3b: invariant 1 is checked in two parts: exact accounting (claims and liquidity) and rounding direction (per-share holdings never drop on a withdrawal). The first version only had the first part and missed a rounding-up mutation.
+
 ## Known issues
 - SIZE BUDGET: BridleHook has 1.4 KB left. 2b must put epoch close / NAV / index / fee math in BridleVault + TrackRecord (as the CLAUDE.md layout already says) and keep only small hooks (views, safe-mode flag) in BridleHook. Making MandateLib an external library saves only ~0.4 KB.
 - Rebalance sandwich: someone can push the pool price inside the band, then trigger execution; the loss is bounded by oracleBandBps. Inherent to the design; the band is the mitigation.
@@ -86,9 +92,10 @@ Result: `forge test` 212 passed, 0 failed (MandateLib 45, Execution 40, Amendmen
 - Safe-mode unwind removes liquidity at the pool price. Someone who pushes the pool price within our liquidity just before a breaching close changes which tokens the vault ends up holding; it costs them the swap, and the vault keeps the fees.
 - Demo (3c/4b), from the outside review: two vaults. One on the real Unichain Sepolia Chainlink ETH/USD feed, and one clearly labelled demo vault on MockAggregator for the breach scene (the real price can't be moved on camera). Set maxStaleness from the real feed's heartbeat, or closeEpoch reverts OracleStale with 5-minute epochs. The UI labels the index "gross of fees" (it's measured before the fee is minted).
 - Demo (3c/4b): nobody arbitrages a testnet pool, so after any >1% ETH move the pool sits out of band and no rebalance or deposit can run. The demo script must swap the pool back to the oracle price; the curator keeps an intent queued to stay "present".
+- 3b gaps: the invariant runs never reach idle-epoch liveness (needs 12+ epochs of no rebalance in 64 steps) and use a single pool; liveness and multi-pool isolation are covered by unit tests (SafeMode, Execution).
 - SIZE BUDGET: BridleHook has 488 B left. 3c (Reactive callbacks) should live in a separate contract. Plan: amendments live in the vault and call one small vault-only setter on the hook.
 - closeEpoch is permissionless, so whoever closes first picks the exact oracle reading inside the window after the epoch ends. The 3c Reactive watcher should close promptly.
 - Fixed in 2d: anyone could deploy a vault naming any curator. Now such a vault takes no intents until that curator posts a bond, and it costs the curator nothing.
 
 ## Next
-Milestone 3b, invariant suite + MandateLib fuzz (branch `feat/phase-3b-invariants`): Foundry handler with deposit, withdraw, queue, execute, swap, closeEpoch, amend, warp, moveOracle (+ lockBond/unbond); the 5 CLAUDE.md invariants (claims == hook holdings with rounding for the vault; turnover <= cap and live positions satisfy distance/width/count; any holder can always withdraw in kind; fee only when index > hwm, hwm non-decreasing; after a breach non-curator claim per share >= before); MandateLib fuzzed against a simple reference implementation. Record runs/depth for the README.
+Milestone 3c, Reactive watcher + Unichain Sepolia deploy + fork test (branch `feat/phase-3c-deploy`): Deploy.s.sol (hook mining + Hooks.validateHookPermissions, vaults, pool init); two vaults (real Chainlink ETH/USD feed; labelled demo vault on MockAggregator); maxStaleness from the real feed's heartbeat; fork test against the deployed contracts (cold-storage gas for beforeSwap execution and closeEpoch); Reactive watcher that calls closeEpoch / executeQueued, with callback auth tests. Reactive is 4th in the cut order (keep permissionless calls).
