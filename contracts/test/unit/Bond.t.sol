@@ -70,7 +70,7 @@ contract BondTest is BridleFixture {
     function test_constructor_revert_zeroMinBond() public {
         PoolKey memory other = PoolKey(currency0, currency1, 500, 10, IHooks(address(hook)));
         vm.expectRevert(BridleVault.ZeroMinBond.selector);
-        new BridleVault(hook, other, feedConfig(), curator, testMandate(), 0, "x", "x");
+        new BridleVault(hook, other, feedConfig(), curator, testMandate(), 0, BASE_CAP, MAX_MULT, "x", "x");
     }
 
     function test_lockBond_revert_notCurator() public {

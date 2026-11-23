@@ -37,6 +37,9 @@ contract BridleVault is ERC20, ReentrancyGuardTransient, TrackRecord {
     IERC20 public immutable token1;
     /// @notice Shares the curator must keep locked for the vault to take intents. Burned on a breach.
     uint256 public immutable minBond;
+    /// @notice Capacity in shares: baseCap * min(1 + goodEpochs, maxMultiplier). Grows with a good record.
+    uint256 public immutable baseCap;
+    uint256 public immutable maxMultiplier;
 
     /// @notice The epoch being scored, and its start snapshot: the tokens the vault held, valued at the
     /// oracle price, and the share supply. Deposits and withdrawals are pro rata, so per share this is fixed.
@@ -54,12 +57,19 @@ contract BridleVault is ERC20, ReentrancyGuardTransient, TrackRecord {
     /// until a close has passed after the request.
     uint256 public unbondPending;
     uint64 public unbondRequestEpoch;
+    /// @notice Closed epochs that beat holding (ratio >= 1.0); they raise capacity.
+    uint256 public goodEpochs;
+    /// @notice A proposed mandate and when it may apply (0 = none). Depositors can exit before then.
+    Mandate public pendingMandate;
+    uint64 public amendmentApplyAfter;
 
     event Deposit(address indexed sender, address indexed receiver, uint256 shares, uint256 amount0, uint256 amount1);
     event Withdraw(address indexed owner, address indexed receiver, uint256 shares, uint256 amount0, uint256 amount1);
     event BondLocked(address indexed curator, uint256 shares, uint256 postedBond);
     event UnbondRequested(address indexed curator, uint256 shares, uint64 epoch);
     event Unbonded(address indexed curator, uint256 shares, uint256 postedBond);
+    event AmendmentProposed(Mandate mandate, uint64 applyAfter);
+    event AmendmentApplied(Mandate mandate);
 
     error NativeCurrencyUnsupported();
     error ZeroShares();
@@ -72,6 +82,8 @@ contract BridleVault is ERC20, ReentrancyGuardTransient, TrackRecord {
     error BondTooLarge();
     error NoticeNotOver();
     error InDrawdown();
+    error BadCapacity();
+    error NoAmendmentReady();
 
     constructor(
         BridleHook _hook,
@@ -80,6 +92,8 @@ contract BridleVault is ERC20, ReentrancyGuardTransient, TrackRecord {
         address curator,
         Mandate memory mandate,
         uint256 minBond_,
+        uint256 baseCap_,
+        uint256 maxMultiplier_,
         string memory name_,
         string memory symbol_
     ) ERC20(name_, symbol_) {
@@ -87,6 +101,9 @@ contract BridleVault is ERC20, ReentrancyGuardTransient, TrackRecord {
         if (key.currency0.isAddressZero()) revert NativeCurrencyUnsupported();
         if (minBond_ == 0) revert ZeroMinBond();
         minBond = minBond_;
+        if (baseCap_ == 0 || maxMultiplier_ == 0) revert BadCapacity();
+        baseCap = baseCap_;
+        maxMultiplier = maxMultiplier_;
         hook = _hook;
         poolId = key.toId();
         token0 = IERC20(Currency.unwrap(key.currency0));
@@ -116,6 +133,7 @@ contract BridleVault is ERC20, ReentrancyGuardTransient, TrackRecord {
         if (shares == 0) revert ZeroShares();
         if (shares < minShares) revert Slippage();
         _mint(receiver, shares);
+        if (totalSupply() > capacity()) revert IMandate.CapacityExceeded();
         // first deposit: everything is idle, so the start snapshot is exactly what was paid in
         if (supply == 0) {
             firstDepositEpoch = hook.epochOf(poolId);
@@ -137,6 +155,45 @@ contract BridleVault is ERC20, ReentrancyGuardTransient, TrackRecord {
         (amount0, amount1) = hook.withdraw(poolId, shares, supply, receiver);
         if (amount0 < amount0Min || amount1 < amount1Min) revert Slippage();
         emit Withdraw(msg.sender, receiver, shares, amount0, amount1);
+    }
+
+    function capacity() public view returns (uint256) {
+        return baseCap * Math.min(1 + goodEpochs, maxMultiplier);
+    }
+
+    // ================================================================ amendments
+
+    /// @notice Curator proposes new terms. They apply only after the CURRENT amendmentDelay, so anyone who
+    /// disagrees can withdraw first (withdrawals never need permission). A new proposal replaces the old one
+    /// and restarts the clock. Terms that protect depositors can only tighten.
+    function proposeAmendment(Mandate calldata m) external {
+        _onlyCurator();
+        if (hook.safeMode(poolId)) revert SafeModeOn();
+        Mandate memory old = hook.mandateOf(poolId);
+        MandateLib.validateMandate(m);
+        if (m.perfFeeBps > old.perfFeeBps) _violation("perfFeeBps"); // fee only down
+        if (m.maxDrawdownBps > old.maxDrawdownBps) _violation("maxDrawdownBps"); // breach line only tighter
+        if (m.epochLength != old.epochLength) _violation("epochLength"); // it numbers the epochs
+        if (m.amendmentDelay < old.amendmentDelay) _violation("amendmentDelay"); // exit window only longer
+        pendingMandate = m;
+        amendmentApplyAfter = uint64(block.timestamp + old.amendmentDelay);
+        emit AmendmentProposed(m, amendmentApplyAfter);
+    }
+
+    /// @notice Anyone applies a proposal once its delay has passed.
+    function applyAmendment() external {
+        uint64 after_ = amendmentApplyAfter;
+        if (after_ == 0 || block.timestamp < after_) revert NoAmendmentReady();
+        if (hook.safeMode(poolId)) revert SafeModeOn();
+        Mandate memory m = pendingMandate;
+        delete pendingMandate;
+        amendmentApplyAfter = 0;
+        hook.setMandate(poolId, m);
+        emit AmendmentApplied(m);
+    }
+
+    function _violation(bytes32 term) internal pure {
+        revert IMandate.MandateViolation(term);
     }
 
     // ================================================================ curator bond
@@ -185,7 +242,7 @@ contract BridleVault is ERC20, ReentrancyGuardTransient, TrackRecord {
     }
 
     function _onlyCurator() internal view returns (address cur) {
-        cur = hook.poolConfig(poolId).curator;
+        cur = hook.curatorOf(poolId);
         if (msg.sender != cur) revert IMandate.NotCurator();
     }
 
@@ -207,10 +264,12 @@ contract BridleVault is ERC20, ReentrancyGuardTransient, TrackRecord {
         r.holdPerShare = Math.mulDiv(_value(holdAmount0, holdAmount1, sqrtP), WAD, holdSupply);
         r.ratio = Math.mulDiv(r.navPerShare, WAD, r.holdPerShare);
         r.index = Math.mulDiv(index, r.ratio, WAD);
+        if (r.ratio >= WAD) ++goodEpochs;
 
-        BridleHook.PoolConfig memory c = hook.poolConfig(poolId);
+        Mandate memory m = hook.mandateOf(poolId);
+        address cur = hook.curatorOf(poolId);
         bool safe = hook.safeMode(poolId);
-        r.breached = !safe && MandateLib.isBreached(c.mandate, r.index, highWaterMark);
+        r.breached = !safe && MandateLib.isBreached(m, r.index, highWaterMark);
 
         // breach: burn the posted bond and the pending fee bond (every other holder's share grows).
         // Otherwise the fee bond survived its epoch and goes to the curator.
@@ -222,19 +281,19 @@ contract BridleVault is ERC20, ReentrancyGuardTransient, TrackRecord {
             unbondPending = 0;
             if (bond > 0) _burn(address(this), bond);
         } else if (bond > 0) {
-            _transfer(address(this), c.curator, bond);
+            _transfer(address(this), cur, bond);
         }
         if (!safe && r.index > highWaterMark) {
             // f = perfFee * (index - hwm) / index; minting supply * f / (1 - f) gives the curator exactly f.
             // shortcut: no per-depositor equalization; whoever holds at close shares the fee (a deposit just
             // before close pays a little of it, a withdrawal just before skips it). Dust at 5-min epochs.
-            uint256 f = Math.mulDiv(r.index - highWaterMark, uint256(c.mandate.perfFeeBps) * WAD / 10_000, r.index);
+            uint256 f = Math.mulDiv(r.index - highWaterMark, uint256(m.perfFeeBps) * WAD / 10_000, r.index);
             r.feeShares = Math.mulDiv(supply, f, WAD - f);
             highWaterMark = r.index;
             if (r.feeShares > 0) {
                 bondShares = r.feeShares;
                 _mint(address(this), r.feeShares);
-                emit FeeMinted(c.curator, r.feeShares, r.index, r.index);
+                emit FeeMinted(cur, r.feeShares, r.index, r.index);
             }
         }
         index = r.index;
@@ -248,9 +307,8 @@ contract BridleVault is ERC20, ReentrancyGuardTransient, TrackRecord {
         // A live intent counts as present: execution can be blocked for a while (pool out of band, stale oracle).
         uint64 activeEpoch =
             lastRebalanceAt == 0 ? firstDepositEpoch : uint64(Math.max(turnoverEpoch, firstDepositEpoch));
-        bool idle =
-            nowEpoch - activeEpoch > c.mandate.maxIdleEpochs && hook.queuedIntent(poolId).deadline < block.timestamp;
-        if (r.breached) emit Breach(c.curator, r.index, highWaterMark, bond);
+        bool idle = nowEpoch - activeEpoch > m.maxIdleEpochs && hook.queuedIntent(poolId).deadline < block.timestamp;
+        if (r.breached) emit Breach(cur, r.index, highWaterMark, bond);
         if (!safe && (r.breached || idle)) {
             hook.enterSafeMode(poolId);
             emit SafeMode(r.breached ? bytes32("breach") : bytes32("idle"));
