@@ -137,7 +137,9 @@ contract BridleVault is ERC20, ReentrancyGuardTransient, TrackRecord {
             bondShares = 0;
         }
         if (r.index > highWaterMark) {
-            // f = perfFee * (index - hwm) / index; minting supply * f / (1 - f) gives the curator exactly f
+            // f = perfFee * (index - hwm) / index; minting supply * f / (1 - f) gives the curator exactly f.
+            // shortcut: no per-depositor equalization; whoever holds at close shares the fee (a deposit just
+            // before close pays a little of it, a withdrawal just before skips it). Dust at 5-min epochs.
             uint256 f = Math.mulDiv(r.index - highWaterMark, uint256(c.mandate.perfFeeBps) * WAD / 10_000, r.index);
             r.feeShares = Math.mulDiv(supply, f, WAD - f);
             highWaterMark = r.index;
@@ -150,7 +152,7 @@ contract BridleVault is ERC20, ReentrancyGuardTransient, TrackRecord {
         index = r.index;
         r.highWaterMark = highWaterMark;
         (,,,, uint64 turnoverEpoch, uint32 turnoverBps) = hook.poolState(poolId);
-        if (turnoverEpoch == currentEpoch) r.turnoverBps = turnoverBps;
+        if (turnoverEpoch >= currentEpoch) r.turnoverBps = turnoverBps; // latest rebalance epoch in the window
         _records.push(r);
         emit EpochClosed(r.epoch, r.navPerShare, r.holdPerShare, r.ratio, r.index, r.highWaterMark);
 
