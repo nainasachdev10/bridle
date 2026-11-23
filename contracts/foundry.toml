@@ -15,6 +15,7 @@ runs = 256
 [invariant]
 runs = 64
 depth = 64
+show_metrics = true
 
 [lint]
 lint_on_build = false
