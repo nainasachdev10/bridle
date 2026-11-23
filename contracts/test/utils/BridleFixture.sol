@@ -6,7 +6,9 @@ import {Deployers} from "@uniswap/v4-core/test/utils/Deployers.sol";
 import {IHooks} from "@uniswap/v4-core/src/interfaces/IHooks.sol";
 import {Hooks} from "@uniswap/v4-core/src/libraries/Hooks.sol";
 import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
-import {Mandate} from "../../src/interfaces/IMandate.sol";
+import {PoolId} from "@uniswap/v4-core/src/types/PoolId.sol";
+import {FeedConfig, Mandate, Range, RebalanceIntent} from "../../src/interfaces/IMandate.sol";
+import {MockAggregator} from "../mocks/MockAggregator.sol";
 import {BridleHook} from "../../src/BridleHook.sol";
 import {BridleVault} from "../../src/BridleVault.sol";
 
@@ -18,10 +20,12 @@ abstract contract BridleFixture is Test, Deployers {
 
     BridleHook hook;
     BridleVault vault;
-    address feed = makeAddr("feed");
-    address curator = makeAddr("curator");
+    MockAggregator oracle;
+    uint256 curatorPk = 0xC0FFEE;
+    address curator = vm.addr(curatorPk);
 
     function setUp() public virtual {
+        vm.warp(1_700_000_000);
         deployFreshManagerAndRouters();
         deployMintAndApprove2Currencies();
 
@@ -29,9 +33,33 @@ abstract contract BridleFixture is Test, Deployers {
         deployCodeTo("BridleHook.sol:BridleHook", abi.encode(manager), hookAddr);
         hook = BridleHook(hookAddr);
 
+        // 8-decimal feed at 1.0 and two 18-decimal tokens: oracle sqrtPrice == SQRT_PRICE_1_1
+        oracle = new MockAggregator(8, 1e8);
         key = PoolKey(currency0, currency1, 3000, 60, IHooks(hookAddr));
-        vault = new BridleVault(hook, key, feed, curator, testMandate(), "Bridle Steady", "bSTEADY");
+        vault = new BridleVault(hook, key, feedConfig(), curator, testMandate(), "Bridle Steady", "bSTEADY");
         manager.initialize(key, SQRT_PRICE_1_1);
+    }
+
+    function feedConfig() internal view returns (FeedConfig memory) {
+        return FeedConfig({aggregator: address(oracle), maxStaleness: 1 hours, baseIsToken0: true});
+    }
+
+    /// @dev Signs and queues an intent from the pool curator.
+    function queue(Range[] memory ranges) internal {
+        RebalanceIntent memory i = RebalanceIntent({
+            poolId: PoolId.unwrap(key.toId()),
+            curator: curator,
+            ranges: ranges,
+            nonce: hook.nonces(curator),
+            deadline: block.timestamp + 1 hours
+        });
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(curatorPk, hook.hashIntent(i));
+        hook.queueIntent(i, abi.encodePacked(r, s, v));
+    }
+
+    function oneRange(int24 lo, int24 hi) internal pure returns (Range[] memory r) {
+        r = new Range[](1);
+        r[0] = Range(lo, hi, 10_000);
     }
 
     /// @dev Testnet params from CLAUDE.md: epochLength 5 min, amendmentDelay 10 min.

@@ -5,18 +5,20 @@ import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {ReentrancyGuardTransient} from "@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol";
-import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
+import {PoolId, PoolIdLibrary} from "@uniswap/v4-core/src/types/PoolId.sol";
 import {Currency} from "@uniswap/v4-core/src/types/Currency.sol";
-import {Mandate} from "./interfaces/IMandate.sol";
+import {FeedConfig, Mandate} from "./interfaces/IMandate.sol";
 import {BridleHook} from "./BridleHook.sol";
 
-/// @notice ERC-20 shares over one Bridle pool. Deposits and withdrawals are in kind and pro rata,
-/// so no price is used for share math. Holdings are tracked internally: donations do not move the share price.
+/// @notice ERC-20 shares over one Bridle pool. The hook holds the assets (positions + idle claims);
+/// this contract is the share ledger. Deposits and withdrawals are in kind and pro rata on every position
+/// and idle balance, so no price is used for share math.
 /// shortcut: plain ERC-20s only (no fee-on-transfer/rebasing): internal accounting would overstate holdings and
 /// the last withdrawers would revert. The curator picks the pair; list this in the README limits.
 contract BridleVault is ERC20, ReentrancyGuardTransient {
     using SafeERC20 for IERC20;
+    using PoolIdLibrary for PoolKey;
 
     /// @dev Burned to a dead address on the first deposit so the share price can never be reset or inflated.
     uint256 public constant DEAD_SHARES = 1_000;
@@ -25,12 +27,9 @@ contract BridleVault is ERC20, ReentrancyGuardTransient {
     address internal constant DEAD = 0x000000000000000000000000000000000000dEaD;
 
     BridleHook public immutable hook;
+    PoolId public immutable poolId;
     IERC20 public immutable token0;
     IERC20 public immutable token1;
-
-    // shortcut: idle balances only; positions are added to holdings in phase 2a.
-    uint256 public idle0;
-    uint256 public idle1;
 
     event Deposit(address indexed sender, address indexed receiver, uint256 shares, uint256 amount0, uint256 amount1);
     event Withdraw(address indexed owner, address indexed receiver, uint256 shares, uint256 amount0, uint256 amount1);
@@ -43,7 +42,7 @@ contract BridleVault is ERC20, ReentrancyGuardTransient {
     constructor(
         BridleHook _hook,
         PoolKey memory key,
-        address feed,
+        FeedConfig memory feed,
         address curator,
         Mandate memory mandate,
         string memory name_,
@@ -52,46 +51,38 @@ contract BridleVault is ERC20, ReentrancyGuardTransient {
         // shortcut: ERC-20 pairs only (use WETH); native ETH needs payable deposit paths.
         if (key.currency0.isAddressZero()) revert NativeCurrencyUnsupported();
         hook = _hook;
+        poolId = key.toId();
         token0 = IERC20(Currency.unwrap(key.currency0));
         token1 = IERC20(Currency.unwrap(key.currency1));
         _hook.registerPool(key, feed, curator, mandate);
     }
 
-    /// @notice Deposit up to amount0Max / amount1Max in the vault's current ratio.
-    /// shortcut: oracle band check on deposits arrives with OracleGuard in phase 2a.
+    /// @notice Deposit up to amount0Max / amount1Max in the vault's current ratio; the unused part is refunded.
+    /// The first deposit takes both amounts exactly and sets the ratio.
+    /// Reverts OutOfBand / OracleStale unless the pool price is within the mandate's band of a fresh oracle.
     function deposit(uint256 amount0Max, uint256 amount1Max, uint256 minShares, address receiver)
         external
         nonReentrant
         returns (uint256 shares, uint256 amount0, uint256 amount1)
     {
         uint256 supply = totalSupply();
+        token0.safeTransferFrom(msg.sender, address(hook), amount0Max);
+        token1.safeTransferFrom(msg.sender, address(hook), amount1Max);
+        (shares, amount0, amount1) = hook.deposit(poolId, msg.sender, amount0Max, amount1Max, supply);
+
         if (supply == 0) {
-            (amount0, amount1) = (amount0Max, amount1Max);
-            uint256 total = Math.sqrt(amount0 * amount1);
-            if (total < MIN_FIRST_DEPOSIT_SHARES) revert FirstDepositTooSmall();
-            shares = total - DEAD_SHARES;
+            if (shares < MIN_FIRST_DEPOSIT_SHARES) revert FirstDepositTooSmall();
+            shares -= DEAD_SHARES;
             _mint(DEAD, DEAD_SHARES);
-        } else {
-            shares = type(uint256).max;
-            if (idle0 > 0) shares = Math.mulDiv(amount0Max, supply, idle0);
-            if (idle1 > 0) shares = Math.min(shares, Math.mulDiv(amount1Max, supply, idle1));
-            if (shares == type(uint256).max) shares = 0; // nothing held: nothing to price against
-            // round amounts up: the depositor pays the dust, never the vault
-            amount0 = Math.mulDiv(shares, idle0, supply, Math.Rounding.Ceil);
-            amount1 = Math.mulDiv(shares, idle1, supply, Math.Rounding.Ceil);
         }
         if (shares == 0) revert ZeroShares();
         if (shares < minShares) revert Slippage();
-
-        idle0 += amount0;
-        idle1 += amount1;
         _mint(receiver, shares);
-        token0.safeTransferFrom(msg.sender, address(this), amount0);
-        token1.safeTransferFrom(msg.sender, address(this), amount1);
         emit Deposit(msg.sender, receiver, shares, amount0, amount1);
     }
 
-    /// @notice Burn shares for a pro-rata slice of every holding. No price, no pause, no fee: always available.
+    /// @notice Burn shares for a pro-rata slice of every position and idle balance. No price, no pause,
+    /// no fee: works with the curator suspended, the oracle stale or safe mode on.
     function withdraw(uint256 shares, uint256 amount0Min, uint256 amount1Min, address receiver)
         external
         nonReentrant
@@ -99,16 +90,9 @@ contract BridleVault is ERC20, ReentrancyGuardTransient {
     {
         if (shares == 0) revert ZeroShares();
         uint256 supply = totalSupply();
-        // round down: the vault keeps the dust
-        amount0 = Math.mulDiv(shares, idle0, supply);
-        amount1 = Math.mulDiv(shares, idle1, supply);
-        if (amount0 < amount0Min || amount1 < amount1Min) revert Slippage();
-
         _burn(msg.sender, shares);
-        idle0 -= amount0;
-        idle1 -= amount1;
-        token0.safeTransfer(receiver, amount0);
-        token1.safeTransfer(receiver, amount1);
+        (amount0, amount1) = hook.withdraw(poolId, shares, supply, receiver);
+        if (amount0 < amount0Min || amount1 < amount1Min) revert Slippage();
         emit Withdraw(msg.sender, receiver, shares, amount0, amount1);
     }
 }

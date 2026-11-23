@@ -113,6 +113,16 @@ contract MandateLibTest is Test {
         h.validateMandate(m);
     }
 
+    /// @dev A cap below 5,000 could never pay for the first deployment, so the vault would stay idle forever.
+    function test_validate_turnoverFloor_isFirstDeploymentCost() public {
+        Mandate memory m = _mandate();
+        m.maxTurnoverBpsPerEpoch = 5_000;
+        h.validateMandate(m);
+        m.maxTurnoverBpsPerEpoch = 4_999;
+        _expectViolation("maxTurnoverBpsPerEpoch");
+        h.validateMandate(m);
+    }
+
     function test_validate_revert_minWidthTicks() public {
         Mandate memory m = _mandate();
         m.minWidthTicks = 0;
@@ -280,9 +290,8 @@ contract MandateLibTest is Test {
 
     function test_turnover_partialReweight() public view {
         // 60/40 -> 40/60: |20%| + |20%|, halved = 20%
-        uint256 t = h.turnoverBps(
-            _two(-600, 600, 6_000, -1200, 1200, 4_000), _two(-1200, 1200, 6_000, -600, 600, 4_000)
-        );
+        uint256 t =
+            h.turnoverBps(_two(-600, 600, 6_000, -1200, 1200, 4_000), _two(-1200, 1200, 6_000, -600, 600, 4_000));
         assertEq(t, 2_000);
     }
 

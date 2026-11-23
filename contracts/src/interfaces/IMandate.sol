@@ -32,6 +32,13 @@ struct RebalanceIntent {
     uint256 deadline;
 }
 
+/// @notice Chainlink feed for a pool, given at registration.
+struct FeedConfig {
+    address aggregator;
+    uint32 maxStaleness; // seconds; match the feed's heartbeat
+    bool baseIsToken0; // feed quotes token0 in token1 (e.g. ETH/USD for WETH/USDC with WETH as token0)
+}
+
 interface IMandate {
     error MandateViolation(bytes32 term);
     error IntentExpired();

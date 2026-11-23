@@ -49,7 +49,8 @@ abstract contract IntentVerifier is EIP712 {
     function _hashRanges(Range[] memory ranges) private pure returns (bytes32) {
         bytes32[] memory hashes = new bytes32[](ranges.length);
         for (uint256 i; i < ranges.length; ++i) {
-            hashes[i] = keccak256(abi.encode(RANGE_TYPEHASH, ranges[i].tickLower, ranges[i].tickUpper, ranges[i].weightBps));
+            hashes[i] =
+                keccak256(abi.encode(RANGE_TYPEHASH, ranges[i].tickLower, ranges[i].tickUpper, ranges[i].weightBps));
         }
         return keccak256(abi.encodePacked(hashes));
     }
