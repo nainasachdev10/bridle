@@ -1,15 +1,21 @@
 #!/usr/bin/env bash
-# Re-runs only source verification for the Unichain Sepolia deployment, from the saved broadcast record.
-# Sends no transactions. Blockscout rate-limits, so it waits between attempts; rerun later if it still hits limits.
-set -euo pipefail
+# Publishes source on Blockscout for the Unichain Sepolia deployment. Sends no transactions, needs no key.
+# Blockscout rate-limits, so it pauses between contracts; rerun later if one still hits "Too many requests".
+set -uo pipefail
 cd "$(dirname "$0")/.."
 
-export STEADY_CURATOR=0x7562186636EB363D639e1328049F994BaF7aC55c
-export AGENT_CURATOR=0xE970f10dc6F08fb66ef2a2A601eA7B652F4257D3
-export RECKLESS_CURATOR=0x4eC233D41dD12B74076FeCFeE8a761DC2D20658C
+verify() { # address contract-path:Name
+  echo "== $2 at $1"
+  forge verify-contract "$1" "$2" --guess-constructor-args \
+    --rpc-url https://sepolia.unichain.org \
+    --verifier blockscout --verifier-url https://unichain-sepolia.blockscout.com/api/ \
+    --watch --retries 10 --delay 20 || echo "!! $2 not verified yet"
+  sleep 20
+}
 
-forge script script/Deploy.s.sol \
-  --rpc-url https://sepolia.unichain.org \
-  --sender 0x52825Ac547d3Ed00C33488E571074e1B55577a97 \
-  --resume --verify --retries 10 --delay 30 \
-  --verifier blockscout --verifier-url https://unichain-sepolia.blockscout.com/api/
+verify 0x518a298ffACd7703c45C397823DDfD4C158ABBEF script/DemoContracts.sol:TestToken   # tUSDC
+verify 0x3353E250A2aF035e4AfC86615186d6CDf9f16E9e script/DemoContracts.sol:DemoFeed
+verify 0x38dE68042435098bE0c8296a2F6FC0b3c22F7372 src/BridleVault.sol:BridleVault     # Steady
+verify 0x5eFD71dB1A7dA5e3314Be8112174a76c26b20495 src/BridleVault.sol:BridleVault     # Agent
+verify 0xd0F560B18D535acc5C3F1ED6620de35eE0D8760F src/BridleVault.sol:BridleVault     # Reckless
+# already verified at deploy time: BridleHook 0x5a2017AA16Cde9e88f5e8Ed0928FFBcff1eA6880, tWETH 0x01163d86A5A3a818879f116e3cd66d5aff8aC855
