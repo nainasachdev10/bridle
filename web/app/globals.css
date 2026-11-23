@@ -1,0 +1,87 @@
+:root {
+  --bg: #fbfaf7;
+  --fg: #1b1b1f;
+  --muted: #6b6b76;
+  --line: #e3e1da;
+  --card: #ffffff;
+  --accent: #3d5afe;
+  --nav: #3d5afe;
+  --hold: #9a9aa5;
+  --ok: #1e8e3e;
+  --warn: #b26a00;
+  --bad: #c62828;
+  --banner: #fff4e0;
+  --banner-bad: #fdecea;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #121216;
+    --fg: #ececf1;
+    --muted: #9a9aa8;
+    --line: #2a2a33;
+    --card: #1a1a20;
+    --accent: #8c9eff;
+    --nav: #8c9eff;
+    --hold: #6e6e7a;
+    --ok: #66bb6a;
+    --warn: #ffb74d;
+    --bad: #ef5350;
+    --banner: #2b2414;
+    --banner-bad: #2e1716;
+  }
+}
+
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+header {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--line);
+}
+main { max-width: 960px; margin: 0 auto; padding: 16px; }
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+.brand { font-weight: 700; font-size: 18px; color: var(--fg); }
+h1 { font-size: 24px; margin: 8px 0; }
+h2 { font-size: 17px; margin: 28px 0 8px; }
+
+.muted { color: var(--muted); }
+.small { font-size: 12px; }
+.mono { font-family: ui-monospace, "SF Mono", Menlo, monospace; }
+.big { font-size: 18px; }
+.ok { color: var(--ok); }
+.warn { color: var(--warn); }
+.bad { color: var(--bad); }
+
+table { width: 100%; border-collapse: collapse; background: var(--card); border: 1px solid var(--line); }
+th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font-size: 12px; color: var(--muted); font-weight: 600; }
+.scroll { overflow-x: auto; }
+
+.stats { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; margin: 16px 0; }
+.stat { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; }
+
+.banner { background: var(--banner); border: 1px solid var(--line); border-radius: 8px; padding: 10px 14px; margin: 12px 0; }
+.banner.bad { background: var(--banner-bad); color: var(--fg); }
+.banner ul { margin: 6px 0 0; padding-left: 20px; }
+
+.chart { margin: 0; background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 8px; }
+.chart svg { width: 100%; height: auto; display: block; }
+.chart .axis { stroke: var(--line); stroke-dasharray: 4 4; }
+.chart .tick { fill: var(--muted); font-size: 11px; }
+.chart .line { fill: none; stroke-width: 2.5; }
+.chart .nav { stroke: var(--nav); }
+.chart .hold { stroke: var(--hold); stroke-dasharray: 6 4; }
+.chart .breach { fill: var(--bad); }
+.chart figcaption { font-size: 12px; color: var(--muted); padding: 6px 4px 0; }
+.key::before { content: ""; display: inline-block; width: 14px; height: 3px; margin-right: 6px; vertical-align: middle; }
+.key.nav::before { background: var(--nav); }
+.key.hold::before { background: var(--hold); }
+.key.breach::before { background: var(--bad); height: 8px; width: 8px; border-radius: 50%; }
