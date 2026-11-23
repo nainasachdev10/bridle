@@ -4,7 +4,8 @@ pragma solidity ^0.8.26;
 import {EpochRecord} from "./interfaces/IMandate.sol";
 
 /// @notice The curator's epoch ledger for one vault: every closed epoch scored against simply holding.
-/// Inherited by BridleVault, which writes it in closeEpoch. Read by the leaderboard and the vault page.
+/// Inherited by BridleVault, which writes it in closeEpoch. Read by the leaderboard and the vault page,
+/// one record at a time or from EpochClosed events (a whole-array getter would outgrow RPC gas caps).
 /// A vault has exactly one curator and mandate, so this is that curator's record under that mandate.
 abstract contract TrackRecord {
     uint256 public constant WAD = 1e18;
@@ -23,10 +24,6 @@ abstract contract TrackRecord {
 
     function recordCount() external view returns (uint256) {
         return _records.length;
-    }
-
-    function records() external view returns (EpochRecord[] memory) {
-        return _records;
     }
 
     function record(uint256 i) external view returns (EpochRecord memory) {
