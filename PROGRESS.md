@@ -27,7 +27,7 @@ Acceptance (CLAUDE.md phase 3 + "Invariants"): Foundry handler; the 5 invariants
 - [x] MandateLib fuzz vs reference (checkRanges pass/fail, turnover computed as (sumOld + sumNew)/2 - overlap)
 - [x] forge test green
 
-Result: `forge test` 220 passed, 0 failed (unit 212 + fuzz 2 + invariants 6). Invariants: 64 runs x 64 calls = 4,096 calls each, 0 unexpected reverts; call mix ~530-630 per handler function. Across one full run (probe, not kept): 219 rebalances, 276 epoch closes, 9 breaches, 9 runs continuing in safe mode. Mutation check: rounding withdrawals up passed the first version of the suite; adding inv 1b catches it (fails with idle0/share).
+Result: `forge test` 220 passed, 0 failed (unit 212 + fuzz 2 + invariants 6). Invariants: 64 runs x 64 calls = 4,096 calls each, 0 unexpected reverts; call mix ~530-630 per handler function. Across one full run (probe, not kept): 219 rebalances, 276 epoch closes, 9 breaches, 9 runs continuing in safe mode. Mutation check: rounding withdrawals up passed the first version of the suite; adding inv 1b catches it (fails with idle0/share). Review fix: `fail_on_revert = true`, so a reverting handler call (e.g. a partial withdrawal) fails the run; a mutation that reverts some partial withdrawals now fails it.
 
 ## Decisions
 - Phase 1: solc pinned to 0.8.26 because v4-core PoolManager is `pragma =0.8.26`.
