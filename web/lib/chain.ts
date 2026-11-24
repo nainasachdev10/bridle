@@ -38,6 +38,23 @@ export const VAULTS = [
   },
 ] as const;
 
+/** EIP-712 domain and types of a curator's signed move (BridleHook's RebalanceIntent). */
+export const INTENT_DOMAIN = { name: "Bridle", version: "1", chainId: 1301, verifyingContract: HOOK } as const;
+export const INTENT_TYPES = {
+  RebalanceIntent: [
+    { name: "poolId", type: "bytes32" },
+    { name: "curator", type: "address" },
+    { name: "ranges", type: "Range[]" },
+    { name: "nonce", type: "uint256" },
+    { name: "deadline", type: "uint256" },
+  ],
+  Range: [
+    { name: "tickLower", type: "int24" },
+    { name: "tickUpper", type: "int24" },
+    { name: "weightBps", type: "uint16" },
+  ],
+} as const;
+
 export const EXPLORER = "https://unichain-sepolia.blockscout.com";
 
 export const client = createPublicClient({ chain: unichainSepolia, transport: http() });

@@ -63,3 +63,23 @@ export function precheck(m: Terms, ranges: Range[], live: Live): Check[] {
     { label: "Cooldown", ok: live.lastRebalanceAt === 0 || live.now >= readyAt, detail: live.lastRebalanceAt === 0 || live.now >= readyAt ? "Enough time since the last move." : `Ready in ${readyAt - live.now} s.` },
   ];
 }
+
+/** Ready-made shapes inside the mandate, so nobody has to type ticks to try the pre-check. */
+export function presets(t: number, s: number, maxDist: number, maxRanges: number): Record<string, Range[]> {
+  const lo = (d: number) => Math.ceil((t - d) / s) * s;
+  const hi = (d: number) => Math.floor((t + d) / s) * s;
+  const [a, b] = [lo(maxDist), hi(maxDist)];
+  const step = Math.floor((b - a) / 3 / s) * s;
+  const out: Record<string, Range[]> = {
+    Wide: [{ tickLower: a, tickUpper: b, weightBps: 10_000 }],
+    Centred: [{ tickLower: lo(maxDist / 2), tickUpper: hi(maxDist / 2), weightBps: 10_000 }],
+  };
+  if (maxRanges >= 3)
+    out.Ladder = [
+      { tickLower: a, tickUpper: a + step, weightBps: 3_333 },
+      { tickLower: a + step, tickUpper: b - step, weightBps: 3_334 },
+      { tickLower: b - step, tickUpper: b, weightBps: 3_333 },
+    ];
+  return out;
+}
+

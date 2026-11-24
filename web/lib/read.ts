@@ -1,4 +1,4 @@
-import { client, hookAbi, HOOK, STATE_VIEW, stateViewAbi, vaultAbi, WETH_IS_TOKEN0 } from "./chain";
+import { client, hookAbi, HOOK, STATE_VIEW, stateViewAbi, TUSDC, TWETH, vaultAbi, WETH_IS_TOKEN0 } from "./chain";
 
 export type Mandate = {
   maxOracleDistanceTicks: number;
@@ -157,4 +157,25 @@ function toMandate(m: Mandate | readonly number[]): Mandate {
 export function usdPerEth(sqrtPriceX96: bigint): number {
   const raw = (Number(sqrtPriceX96) / 2 ** 96) ** 2;
   return WETH_IS_TOKEN0 ? raw * 1e12 : 1e12 / raw;
+}
+
+/** Pool price within the mandate's band of a fresh oracle price (deposits and moves need it). */
+export const inBand = (d: VaultDetail) =>
+  d.oracleUsd !== null && Math.abs(d.poolUsd / d.oracleUsd - 1) * 10_000 <= d.mandate.oracleBandBps;
+
+/** PoolSwapTest.swap args that move the pool to the oracle price (the limit stops it there). Free while the pool
+ * holds no liquidity on the way; otherwise the caller pays tokenIn like any arbitrage. Needs a fresh oracle. */
+export function realignCall(d: VaultDetail, fee: number, tickSpacing: number) {
+  const zeroForOne = d.poolSqrt > d.oracleSqrt!;
+  const [c0, c1] = WETH_IS_TOKEN0 ? [TWETH, TUSDC] : [TUSDC, TWETH];
+  return {
+    tokenIn: zeroForOne ? c0 : c1,
+    paying: d.positions.some((p) => p.liquidity > 0n),
+    args: [
+      { currency0: c0, currency1: c1, fee, tickSpacing, hooks: HOOK },
+      { zeroForOne, amountSpecified: -(2n ** 128n), sqrtPriceLimitX96: d.oracleSqrt! }, // exact input, stopped by the limit
+      { takeClaims: false, settleUsingBurn: false },
+      "0x",
+    ] as const,
+  };
 }

@@ -1,10 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { client, HOOK, hookAbi, routerAbi, SWAP_ROUTER, tokenAbi, TUSDC, TWETH, vaultAbi, WETH_IS_TOKEN0 } from "@/lib/chain";
+import { client, HOOK, hookAbi, INTENT_DOMAIN, INTENT_TYPES, routerAbi, SWAP_ROUTER, tokenAbi, vaultAbi, WETH_IS_TOKEN0 } from "@/lib/chain";
 import { shares, short, usd } from "@/lib/format";
-import { precheck, tickAt, type Range } from "@/lib/precheck";
-import type { VaultDetail } from "@/lib/read";
+import { precheck, presets, tickAt, type Range } from "@/lib/precheck";
+import { realignCall, type VaultDetail } from "@/lib/read";
 import { reason, send, useWallet, walletClient } from "@/lib/wallet";
 
 type Chain = {
@@ -18,43 +18,9 @@ type Chain = {
   myShares: bigint;
 };
 
-const TYPES = {
-  RebalanceIntent: [
-    { name: "poolId", type: "bytes32" },
-    { name: "curator", type: "address" },
-    { name: "ranges", type: "Range[]" },
-    { name: "nonce", type: "uint256" },
-    { name: "deadline", type: "uint256" },
-  ],
-  Range: [
-    { name: "tickLower", type: "int24" },
-    { name: "tickUpper", type: "int24" },
-    { name: "weightBps", type: "uint16" },
-  ],
-} as const;
-
 /** USD per ETH at a tick (tWETH 18 decimals, tUSDC 6). */
 const usdAt = (tick: number) => (WETH_IS_TOKEN0 ? 1.0001 ** tick * 1e12 : 1e12 / 1.0001 ** tick);
 const priceRange = (r: Range) => [usdAt(r.tickLower), usdAt(r.tickUpper)].sort((a, b) => a - b).map((p) => usd(Math.round(p))).join(" – ");
-
-/** Ready-made shapes inside the mandate, so nobody has to type ticks to try the pre-check. */
-function presets(t: number, s: number, maxDist: number, maxRanges: number): Record<string, Range[]> {
-  const lo = (d: number) => Math.ceil((t - d) / s) * s;
-  const hi = (d: number) => Math.floor((t + d) / s) * s;
-  const [a, b] = [lo(maxDist), hi(maxDist)];
-  const step = Math.floor((b - a) / 3 / s) * s;
-  const out: Record<string, Range[]> = {
-    Wide: [{ tickLower: a, tickUpper: b, weightBps: 10_000 }],
-    Centred: [{ tickLower: lo(maxDist / 2), tickUpper: hi(maxDist / 2), weightBps: 10_000 }],
-  };
-  if (maxRanges >= 3)
-    out.Ladder = [
-      { tickLower: a, tickUpper: a + step, weightBps: 3_333 },
-      { tickLower: a + step, tickUpper: b - step, weightBps: 3_334 },
-      { tickLower: b - step, tickUpper: b, weightBps: 3_333 },
-    ];
-  return out;
-}
 
 /** Anyone can try ranges against the live pre-check; only the curator can sign. Permissionless calls at the bottom. */
 export function Console({ vault, d, fee, tickSpacing, bandOk, onDone }: {
@@ -142,8 +108,8 @@ export function Console({ vault, d, fee, tickSpacing, bandOk, onDone }: {
     const intent = { poolId: d.poolId, curator: d.curator, ranges, nonce: c!.nonce, deadline: BigInt(now + 3600) };
     const signature = await w.signTypedData({
       account: account!,
-      domain: { name: "Bridle", version: "1", chainId: 1301, verifyingContract: HOOK },
-      types: TYPES,
+      domain: INTENT_DOMAIN,
+      types: INTENT_TYPES,
       primaryType: "RebalanceIntent",
       message: intent,
     });
@@ -159,29 +125,15 @@ export function Console({ vault, d, fee, tickSpacing, bandOk, onDone }: {
     await send({ address: HOOK, abi: hookAbi, functionName: "executeQueued", args: [d.poolId] });
     return "The queued move ran: the new ranges are live.";
   });
-  // swap to the oracle price with it as the limit: free while the pool holds no liquidity there
   const realign = run("Moving the pool…", async () => {
-    const zeroForOne = d.poolSqrt > d.oracleSqrt!;
-    const [c0, c1] = WETH_IS_TOKEN0 ? [TWETH, TUSDC] : [TUSDC, TWETH];
-    const tokenIn = zeroForOne ? c0 : c1;
-    const paying = d.positions.some((p) => p.liquidity > 0n); // with liquidity in range, the swap costs real input
+    const { tokenIn, paying, args } = realignCall(d, fee, tickSpacing);
     if (paying) {
       const balance = await client.readContract({ address: tokenIn, abi: tokenAbi, functionName: "balanceOf", args: [account!] });
       setBusy("Approving the swap…");
       await send({ address: tokenIn, abi: tokenAbi, functionName: "approve", args: [SWAP_ROUTER, balance] });
     }
     setBusy("Moving the pool…");
-    await send({
-      address: SWAP_ROUTER,
-      abi: routerAbi,
-      functionName: "swap",
-      args: [
-        { currency0: c0, currency1: c1, fee, tickSpacing, hooks: HOOK },
-        { zeroForOne, amountSpecified: -(2n ** 128n), sqrtPriceLimitX96: d.oracleSqrt! }, // exact input, stopped by the limit
-        { takeClaims: false, settleUsingBurn: false },
-        "0x",
-      ],
-    });
+    await send({ address: SWAP_ROUTER, abi: routerAbi, functionName: "swap", args });
     if (paying) {
       setBusy("Clearing the approval…"); // leave no open allowance on the (unverified) test router
       await send({ address: tokenIn, abi: tokenAbi, functionName: "approve", args: [SWAP_ROUTER, 0n] });

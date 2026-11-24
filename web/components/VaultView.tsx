@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { VAULTS, EXPLORER } from "@/lib/chain";
 import { bps, minutes, shares, short, usd, vsHold } from "@/lib/format";
-import { readDetail, type Mandate, type VaultDetail } from "@/lib/read";
+import { inBand, readDetail, type Mandate, type VaultDetail } from "@/lib/read";
 import { Act } from "./Act";
 import { HeroArt } from "./Art";
 import { Console } from "./Console";
@@ -42,7 +42,7 @@ export function VaultView({ address }: { address: `0x${string}` }) {
   }, [load]);
 
   const breach = d ? d.records.findIndex((r) => r.breached) : -1;
-  const bandOk = d !== null && d.oracleUsd !== null && Math.abs(d.poolUsd / d.oracleUsd - 1) * 10_000 <= d.mandate.oracleBandBps;
+  const bandOk = d !== null && inBand(d);
   const changed = d?.pending ? TERMS.filter((t) => d.pending![t.key] !== d.mandate[t.key]) : [];
   // one share vs holding, both starting at 1.0; the hold line is NAV / index (the index compounds NAV/hold)
   const base = d && d.records.length > 0 ? Number(d.records[0].holdPerShare) : 1;
