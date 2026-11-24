@@ -14,21 +14,18 @@ Source of truth for status. Read at the start of every session. Workflow: see CL
 | 3c Unichain Sepolia deploy script + fork test | Dec 1 | feat/phase-3c-deploy | done, merged (PR #8) |
 | 3d Reactive watcher (cut order #4; needs Lasna REACT) | Dec 1 | feat/phase-3d-reactive | not started |
 | 4a Web, read-only: leaderboard + vault page | Dec 2 | feat/phase-4a-web | done, merged (PR #9) |
-| 4b Web, wallet: faucet, deposit/withdraw, curator console + live pre-check | Dec 2 | feat/phase-4b-wallet | in progress |
-| 4c Agent, demo script, README | Dec 3 | feat/phase-4c-ship | not started |
+| 4b Web, wallet: faucet, deposit/withdraw, curator console + live pre-check | Dec 2 | feat/phase-4b-wallet | done, merged (PR #10); wallet test pending (user) |
+| 4c Agent, demo script, README | Dec 3 | feat/phase-4c-ship | in progress |
 
-## Current milestone: 4b Web, wallet actions
-Acceptance (CLAUDE.md phase 4, split): curator console with live pre-check; depositors can get test tokens, deposit and withdraw from the vault page. Then the first real activity on testnet.
+## Current milestone: 4c Agent, demo script, README
+Acceptance (CLAUDE.md phase 4): agent script, demo script with 3 curators (Steady, Agent, Reckless), README (integrations with file:line, invariants + runs, coverage, gas). Carried over from 4b: the user's wallet test of the web actions (unchecked line at the end).
 
-- [x] Wallet: injected wallet (EIP-1193) through viem only, switch/add Unichain Sepolia; connect button in the header
-- [x] Faucet: mint tWETH + tUSDC (open mint on the test tokens)
-- [x] Deposit: one amount in, the other at the pool price; exact approvals; simulate first to show shares and amounts, minShares = 99% of the simulation
-- [x] Withdraw: shares in, simulate for amounts, mins = 99%; works in any state (no band/oracle needed)
-- [x] Curator console (shown to the curator only): lockBond; edit ranges; live pre-check (TS port of checkRanges + turnover vs current positions + band, staleness, cooldown) with a plain reason per failure; sign EIP-712 intent, simulate queueIntent on chain, send
-- [x] Permissionless buttons: execute the queued intent, close the epoch, move the pool back to the oracle price (Uniswap's PoolSwapTest 0x9140a78c1a137c7ff1c151ec8231272af78a99a4, `manager()` = our PoolManager)
-- [x] One runnable self-check for the pre-check port (node --test)
-- [x] tsc + `npm test` (4 pass) + build pass; vault page in the browser: live pre-check flips the right check per broken term, presets in mandate, no overflow at 375 px
-- [ ] Real path with a wallet (user): faucet, realign pool, deposit, lockBond, sign + queue, execute, close epoch, withdraw
+- [ ] agent/: one TS package. `sign.ts` (EIP-712 intent, shared), `agent.ts` (read vault state, ask Claude for ranges as JSON, run web/lib/precheck.ts, sign + queueIntent only if every check passes, otherwise log why and skip), `demo.ts` (scenes below). viem + @anthropic-ai/sdk only. Keys from env set by the user; never in a file in the repo.
+- [ ] Demo scenes (each one command, idempotent): refresh DemoFeed; realign each pool to its oracle price; seed deposits; curators lock bond; Steady + Reckless queue and execute a move; close epochs; Agent runs one agent round; breach on Reckless (DemoFeed drop, close epoch, safe mode, depositor still withdraws).
+- [ ] One self-check: the agent's JSON parse + precheck gate rejects an out-of-mandate answer (node --test)
+- [ ] Run the scenes on Unichain Sepolia (user runs them; I read results on chain) so the web shows positions, chart and track record
+- [ ] README: what/why, ERC-8192 prior art + what Bridle adds, architecture, integrations with file:line (Uniswap v4, Chainlink, Claude agent; Reactive only if built), deployed addresses, invariants + runs, coverage (99.44% lines, `--ir-minimum`), gas, limits (Known issues), how to run, credits
+- [ ] Carried from 4b: real path with a wallet (user): faucet, realign pool, deposit, lockBond, sign + queue, execute, close epoch, withdraw
 
 ## Deployment (Unichain Sepolia, chain 1301)
 Kept across milestones. Deployed Nov 23 by the user (`contracts/script/deploy-unichain-sepolia.sh`, keystore account), block 68579557; record in `contracts/broadcast/Deploy.s.sol/1301/run-latest.json`. Source verification: `contracts/script/verify-unichain-sepolia.sh` (all seven contracts verified on Blockscout: BridleHook, tWETH, tUSDC, DemoFeed and the three vaults).
@@ -135,4 +132,4 @@ Verified on chain 1301 (Nov 23):
 - Fixed in 2d: anyone could deploy a vault naming any curator. Now such a vault takes no intents until that curator posts a bond, and it costs the curator nothing.
 
 ## Next
-Milestone 4b, web wallet actions (branch `feat/phase-4b-wallet`): connect a wallet (injected) on Unichain Sepolia; tWETH/tUSDC faucet; deposit (with amount maxes + minShares) and withdraw (amount mins) on the vault page; curator console: pick ranges, live pre-check against the mandate (TS port of checkRanges + turnover vs current positions + band/staleness/cooldown), sign the EIP-712 intent and queue it; lockBond. Then run the first real activity on testnet so the chart, positions and track record have data.
+Milestone 4c (branch `feat/phase-4c-ship`): agent, demo scenes, README; see the checklist above. Then 3d Reactive watcher only if time allows (cut order #4).
