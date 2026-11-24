@@ -72,7 +72,9 @@ export async function walletClient() {
   if (state.chainId !== unichainSepolia.id) {
     try {
       await w.switchChain({ id: unichainSepolia.id });
-    } catch {
+    } catch (e) {
+      // 4902 = the wallet doesn't know this chain yet; anything else (e.g. the user cancelled) stops here
+      if (!(e instanceof BaseError && e.walk((x) => (x as { code?: number }).code === 4902))) throw e;
       await w.addChain({ chain: unichainSepolia });
     }
     set({ chainId: unichainSepolia.id });

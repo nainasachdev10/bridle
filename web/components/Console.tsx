@@ -163,8 +163,9 @@ export function Console({ vault, d, fee, tickSpacing, bandOk, onDone }: {
   const realign = run("Moving the pool…", async () => {
     const zeroForOne = d.poolSqrt > d.oracleSqrt!;
     const [c0, c1] = WETH_IS_TOKEN0 ? [TWETH, TUSDC] : [TUSDC, TWETH];
-    if (d.positions.some((p) => p.liquidity > 0n)) {
-      const tokenIn = zeroForOne ? c0 : c1;
+    const tokenIn = zeroForOne ? c0 : c1;
+    const paying = d.positions.some((p) => p.liquidity > 0n); // with liquidity in range, the swap costs real input
+    if (paying) {
       const balance = await client.readContract({ address: tokenIn, abi: tokenAbi, functionName: "balanceOf", args: [account!] });
       setBusy("Approving the swap…");
       await send({ address: tokenIn, abi: tokenAbi, functionName: "approve", args: [SWAP_ROUTER, balance] });
@@ -181,6 +182,10 @@ export function Console({ vault, d, fee, tickSpacing, bandOk, onDone }: {
         "0x",
       ],
     });
+    if (paying) {
+      setBusy("Clearing the approval…"); // leave no open allowance on the (unverified) test router
+      await send({ address: tokenIn, abi: tokenAbi, functionName: "approve", args: [SWAP_ROUTER, 0n] });
+    }
     return "The pool is back at the oracle price: deposits and moves can run again.";
   });
   const close = run("Closing epoch…", async () => {
@@ -250,8 +255,10 @@ export function Console({ vault, d, fee, tickSpacing, bandOk, onDone }: {
           ) : isCurator ? (
             d.isActive ? (
               <button className="btn" disabled={!!busy || !c || !allOk} onClick={queue}>{busy ?? (allOk ? "Sign and queue" : "Fix the red checks first")}</button>
+            ) : bondNeeded === 0n ? (
+              <span className="note">Your bond is above the minimum but an unbond request is pending, so you can't queue moves.</span>
             ) : (
-              <button className="btn" disabled={!!busy || bondNeeded === 0n || (c?.myShares ?? 0n) < bondNeeded} onClick={lock}>
+              <button className="btn" disabled={!!busy || (c?.myShares ?? 0n) < bondNeeded} onClick={lock}>
                 {busy ?? `Lock bond (${shares(bondNeeded)} shares)`}
               </button>
             )
