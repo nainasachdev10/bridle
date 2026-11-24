@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Archivo, IBM_Plex_Mono } from "next/font/google";
 import Link from "next/link";
 import { Logo } from "@/components/Art";
+import { Connect } from "@/components/Connect";
 import { Nav } from "@/components/Nav";
 import { EXPLORER, HOOK } from "@/lib/chain";
 import "./globals.css";
@@ -26,7 +27,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               <Logo height={34} />
             </Link>
             <Nav />
-            <a className="btn btn-line btn-sm" href={REPO}>Source on GitHub</a>
+            <Connect />
           </header>
         </div>
         <main>{children}</main>

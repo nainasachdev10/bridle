@@ -1,4 +1,4 @@
-import { client, hookAbi, HOOK, STATE_VIEW, stateViewAbi, TWETH, TUSDC, vaultAbi } from "./chain";
+import { client, hookAbi, HOOK, STATE_VIEW, stateViewAbi, vaultAbi, WETH_IS_TOKEN0 } from "./chain";
 
 export type Mandate = {
   maxOracleDistanceTicks: number;
@@ -87,6 +87,8 @@ export type VaultDetail = VaultSummary & {
   applyAfter: number;
   positions: { tickLower: number; tickUpper: number; weightBps: number; liquidity: bigint }[];
   oracleUsd: number | null; // null when the feed is stale
+  oracleSqrt: bigint | null;
+  poolSqrt: bigint;
   poolUsd: number;
 };
 
@@ -140,6 +142,8 @@ export async function readDetail(address: `0x${string}`): Promise<VaultDetail> {
     applyAfter: applyAt,
     positions: positions.map((p) => ({ ...p })),
     oracleUsd: oracle === null ? null : usdPerEth(oracle),
+    oracleSqrt: oracle,
+    poolSqrt: slot0[0],
     poolUsd: usdPerEth(slot0[0]),
   };
 }
@@ -152,6 +156,5 @@ function toMandate(m: Mandate | readonly number[]): Mandate {
 /** Pool price (raw token1 per raw token0) as USD per ETH, for tWETH (18) / tUSDC (6). */
 export function usdPerEth(sqrtPriceX96: bigint): number {
   const raw = (Number(sqrtPriceX96) / 2 ** 96) ** 2;
-  const wethIsToken0 = BigInt(TWETH) < BigInt(TUSDC);
-  return wethIsToken0 ? raw * 1e12 : 1e12 / raw;
+  return WETH_IS_TOKEN0 ? raw * 1e12 : 1e12 / raw;
 }

@@ -379,3 +379,38 @@ tbody tr.link:hover td:first-child strong { color: var(--cobalt); }
   .art-badge strong { font-size: 38px; }
   td, th { padding-left: var(--s4); padding-right: var(--s4); }
 }
+
+/* ---------------------------------------------------------------- wallet actions (4b) */
+.wallet-chip { display: inline-flex; align-items: center; gap: var(--s2); height: 38px; padding: 0 var(--s4); border: 1.5px solid var(--ink); font-size: 14px; }
+.wallet-chip::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--cobalt); }
+.btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.btn:disabled:hover { background: var(--cobalt); border-color: var(--cobalt); }
+.btn-line:disabled:hover { background: transparent; color: var(--ink); border-color: var(--ink); }
+.act { display: grid; gap: var(--s5); max-width: 640px; }
+.balances { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--s4); margin: 0; }
+.balances div { border-top: var(--rule); padding-top: var(--s3); }
+.balances dd { margin: var(--s2) 0 0; font-size: 20px; }
+.field { display: grid; gap: var(--s2); }
+.input { display: flex; align-items: center; border: 1.5px solid var(--ink); background: #fff; height: 56px; }
+.input input { flex: 1; min-width: 0; border: 0; background: transparent; font: 700 24px var(--sans); padding: 0 var(--s4); outline: none; }
+.input b { font: 500 13px var(--mono); padding: 0 var(--s4); letter-spacing: 0.08em; }
+.input:focus-within { box-shadow: 0 0 0 3px var(--cobalt); }
+.note { font-size: 15px; line-height: 1.5; padding-left: var(--s4); border-left: 4px solid var(--ink-30); }
+.note.good { border-left-color: var(--cobalt); }
+.note.bad { border-left-color: var(--vermilion); }
+.presets { display: flex; gap: var(--s2); flex-wrap: wrap; }
+.ranges input { width: 108px; height: 38px; border: 1.5px solid var(--ink-30); background: #fff; font: 500 15px var(--mono); padding: 0 var(--s2); }
+.ranges input:focus { outline: none; border-color: var(--cobalt); }
+.ranges td.num input { text-align: right; }
+.x { border: 0; background: none; font-size: 22px; cursor: pointer; color: var(--muted); }
+.x:hover { color: var(--vermilion); }
+.checks { list-style: none; margin: 0; padding: 0; border-top: var(--rule); }
+.checks li { display: grid; grid-template-columns: 22px 1fr; column-gap: var(--s3); padding: var(--s3) 0; border-bottom: 1px solid var(--ink-30); }
+.checks li::before { content: "✓"; grid-row: span 2; font-weight: 700; color: var(--cobalt); }
+.checks li.no::before { content: "✕"; color: var(--vermilion); }
+.checks li strong { font-size: 15px; }
+.checks li span { font-size: 14px; color: var(--ink-70); }
+.anyone { margin-top: var(--s7); padding-top: var(--s5); border-top: var(--rule); display: grid; gap: var(--s3); }
+@media (max-width: 640px) { .balances { grid-template-columns: 1fr 1fr; } .ranges { font-size: 13px; } }
+.ranges td.mono { white-space: nowrap; }
+.ranges td, .ranges th { padding-left: var(--s2); padding-right: var(--s2); }
